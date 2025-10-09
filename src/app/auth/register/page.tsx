@@ -1,0 +1,679 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+
+export default function RegisterPage() {
+  const [formData, setFormData] = useState({
+    role: 'shipowner',
+    // common
+    email: '',
+    password: '',
+    confirmPassword: '',
+    contactNumber: '',
+    // shipowner
+    fullName: '',
+    officeAddress: '',
+    businessRegistrationNumber: '',
+    vesselName: '',
+    imoNumber: '',
+    vesselType: '',
+    vesselCapacity: '',
+    // shipyard
+    shipyardName: '',
+    dockyardLocation: '',
+    shipyardBusinessRegNumber: '',
+    yearsOfOperation: '',
+    maxVesselCapacity: '',
+    dockingServices: [
+      { name: '', squareMeters: '', hours: '', workers: '', days: '', price: '' },
+    ] as { name: string; squareMeters: string; hours: string; workers: string; days: string; price: string }[],
+    dryDockAvailability: '',
+    certificateShipBuilder: undefined as File | undefined,
+    certificateShipRepair: undefined as File | undefined,
+    certificateOther: undefined as File | undefined,
+    logoFile: undefined as File | undefined,
+    contactPerson: '',
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [apiError, setApiError] = useState<string>('');
+  const router = useRouter();
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+    // Clear error when user starts typing
+    if (errors[e.target.name]) {
+      setErrors({
+        ...errors,
+        [e.target.name]: '',
+      });
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors: {[key: string]: string} = {};
+
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email is invalid';
+    }
+
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    // Role-specific validation
+    if (formData.role === 'shipowner') {
+      if (!formData.fullName.trim()) newErrors.fullName = 'Full/Company name is required';
+      if (!formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
+      if (!formData.officeAddress.trim()) newErrors.officeAddress = 'Office address is required';
+      const anyVesselProvided = [formData.vesselName, formData.imoNumber, formData.vesselType, formData.vesselCapacity].some(v => v && v.trim().length > 0);
+      if (anyVesselProvided) {
+        if (!formData.vesselName.trim()) newErrors.vesselName = 'Vessel name is required';
+        if (!formData.imoNumber.trim()) newErrors.imoNumber = 'IMO/Vessel ID is required';
+        if (!formData.vesselType.trim()) newErrors.vesselType = 'Vessel type is required';
+        if (!formData.vesselCapacity.trim()) newErrors.vesselCapacity = 'Vessel capacity is required';
+      }
+    } else if (formData.role === 'shipyard') {
+      if (!formData.shipyardName.trim()) newErrors.shipyardName = 'Shipyard name is required';
+      if (!formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
+      if (!formData.dockyardLocation.trim()) newErrors.dockyardLocation = 'Dockyard location is required';
+      if (!formData.shipyardBusinessRegNumber.trim()) newErrors.shipyardBusinessRegNumber = 'Business registration number is required';
+      // Optional: yearsOfOperation, maxVesselCapacity
+      // Validate at least one service with a name
+      const hasAnyServiceName = formData.dockingServices.some(s => s.name && s.name.trim().length > 0);
+      if (!hasAnyServiceName) newErrors.dockingServices = 'Add at least one docking service';
+      formData.dockingServices.forEach((s, idx) => {
+        const prefix = `dockingServices[${idx}]`;
+        if (s.name && s.name.trim().length > 0) {
+          if (!s.squareMeters.trim()) newErrors[`${prefix}.squareMeters`] = 'Square meters required';
+          if (!s.hours.trim()) newErrors[`${prefix}.hours`] = 'Hours required';
+          if (!s.workers.trim()) newErrors[`${prefix}.workers`] = 'Workers required';
+          if (!s.days.trim()) newErrors[`${prefix}.days`] = 'Days required';
+          if (!s.price.trim()) newErrors[`${prefix}.price`] = 'Price required';
+        }
+      });
+      // Optional: dryDockAvailability, contactPerson
+      // Certificates optional in this iteration; backend upload not wired yet
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsLoading(true);
+    setApiError('');
+    setSuccessMessage('');
+
+    try {
+      // Upload files to S3 first
+      let logoUrl = '';
+      let certificateBuilder = '';
+      let certificateRepair = '';
+      let certificateOther = '';
+
+      // Upload logo if provided
+      if (formData.logoFile) {
+        console.log('[Register] Uploading logo to S3...');
+        const presignRes = await fetch('/api/uploads/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileType: formData.logoFile.type, prefix: 'logos' }),
+        });
+        
+        if (presignRes.ok) {
+          const { url, publicUrl } = await presignRes.json();
+          const uploadRes = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': formData.logoFile.type },
+            body: formData.logoFile,
+          });
+          
+          if (uploadRes.ok) {
+            logoUrl = publicUrl;
+            console.log('[Register] Logo uploaded successfully:', publicUrl);
+          } else {
+            console.error('[Register] Logo upload failed:', uploadRes.status);
+          }
+        } else {
+          console.error('[Register] Failed to get presigned URL for logo');
+        }
+      }
+
+      // Upload certificates if provided (only for shipyard)
+      if (formData.role === 'shipyard') {
+        if (formData.certificateShipBuilder) {
+          console.log('[Register] Uploading ship builder certificate...');
+          const presignRes = await fetch('/api/uploads/presign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileType: formData.certificateShipBuilder.type, prefix: 'certificates' }),
+          });
+          
+          if (presignRes.ok) {
+            const { url, publicUrl } = await presignRes.json();
+            const uploadRes = await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': formData.certificateShipBuilder.type },
+              body: formData.certificateShipBuilder,
+            });
+            
+            if (uploadRes.ok) {
+              certificateBuilder = publicUrl;
+              console.log('[Register] Ship builder certificate uploaded:', publicUrl);
+            }
+          }
+        }
+
+        if (formData.certificateShipRepair) {
+          console.log('[Register] Uploading ship repair certificate...');
+          const presignRes = await fetch('/api/uploads/presign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileType: formData.certificateShipRepair.type, prefix: 'certificates' }),
+          });
+          
+          if (presignRes.ok) {
+            const { url, publicUrl } = await presignRes.json();
+            const uploadRes = await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': formData.certificateShipRepair.type },
+              body: formData.certificateShipRepair,
+            });
+            
+            if (uploadRes.ok) {
+              certificateRepair = publicUrl;
+              console.log('[Register] Ship repair certificate uploaded:', publicUrl);
+            }
+          }
+        }
+
+        if (formData.certificateOther) {
+          console.log('[Register] Uploading other certificate...');
+          const presignRes = await fetch('/api/uploads/presign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileType: formData.certificateOther.type, prefix: 'certificates' }),
+          });
+          
+          if (presignRes.ok) {
+            const { url, publicUrl } = await presignRes.json();
+            const uploadRes = await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': formData.certificateOther.type },
+              body: formData.certificateOther,
+            });
+            
+            if (uploadRes.ok) {
+              certificateOther = publicUrl;
+              console.log('[Register] Other certificate uploaded:', publicUrl);
+            }
+          }
+        }
+      }
+
+      // Prepare registration payload
+      const payload: Record<string, unknown> = {
+        email: formData.email,
+        password: formData.password,
+        role: formData.role === 'shipowner' ? 'SHIPOWNER' : 'SHIPYARD',
+        contactNumber: formData.contactNumber || undefined,
+        officeAddress: (formData.role === 'shipowner' ? formData.officeAddress : formData.dockyardLocation) || undefined,
+        businessRegistrationNumber: (formData.role === 'shipowner' ? formData.businessRegistrationNumber : formData.shipyardBusinessRegNumber) || undefined,
+        logoUrl: logoUrl || undefined,
+        certificateBuilder: certificateBuilder || undefined,
+        certificateRepair: certificateRepair || undefined,
+        certificateOther: certificateOther || undefined,
+      };
+
+      if (formData.role === 'shipowner') {
+        payload.fullName = formData.fullName || undefined;
+        const anyVessel = [formData.vesselName, formData.imoNumber, formData.vesselType, formData.vesselCapacity].some(v => v && v.trim());
+        if (anyVessel) {
+          payload.vesselInfo = {
+            vesselName: formData.vesselName,
+            imoNumber: formData.imoNumber,
+            vesselType: formData.vesselType,
+            vesselCapacity: formData.vesselCapacity,
+          };
+        }
+      } else {
+        payload.shipyardName = formData.shipyardName || undefined;
+        payload.officeAddress = formData.dockyardLocation || undefined;
+        payload.businessRegistrationNumber = formData.shipyardBusinessRegNumber || undefined;
+        payload.yearsOfOperation = formData.yearsOfOperation || undefined;
+        payload.maxVesselCapacity = formData.maxVesselCapacity || undefined;
+        payload.dockingServices = formData.dockingServices;
+        payload.dryDockAvailability = formData.dryDockAvailability || undefined;
+        payload.contactPerson = formData.contactPerson || undefined;
+      }
+
+      console.log('[Register] Sending registration payload:', payload);
+      console.log('[Register] Certificate URLs being sent:', {
+        certificateBuilder,
+        certificateRepair,
+        certificateOther
+      });
+
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      console.log('[Register] response status:', res.status);
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.error('[Register] error response text:', text);
+        let data: Record<string, unknown> = {};
+        try { data = JSON.parse(text); } catch {}
+        throw new Error((data?.error as string) || text || 'Failed to register');
+      }
+      const data = await res.json().catch(() => ({}));
+      console.log('[Register] success response JSON:', data);
+
+
+      setSuccessMessage('Registration submitted. Your account is INACTIVE and awaiting approval.');
+      // Optionally clear sensitive fields
+      setFormData({
+        ...formData,
+        password: '',
+        confirmPassword: '',
+      });
+      // Redirect to login after short delay
+    setTimeout(() => {
+        router.push('/auth/login?registered=1');
+      }, 1500);
+    } catch (err: unknown) {
+      setApiError((err instanceof Error ? err.message : 'Something went wrong'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-cover bg-center bg-no-repeat py-10 px-4 sm:px-6 lg:px-8" style={{ backgroundImage: "url('/assets/background.jpg')" }}>
+      <Card className="w-full max-w-5xl shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+        <CardHeader className="space-y-1 text-center">
+          <CardTitle className="text-xl sm:text-2xl font-bold text-[#134686]">
+            Create your account
+          </CardTitle>
+          <CardDescription className="text-sm sm:text-base text-[#134686]/80">
+            Sign up to get started with Marinex
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {apiError && (
+              <div className="text-sm text-red-600">{apiError}</div>
+            )}
+            {successMessage && (
+              <div className="text-sm text-green-700">{successMessage}</div>
+            )}
+            {/* Role Selector */}
+            <div className="space-y-2">
+              <Label className="text-[#134686] font-medium">Registering as</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={formData.role === 'shipowner' ? 'default' : 'secondary'}
+                  className={`${formData.role === 'shipowner' ? 'bg-[#134686] hover:bg-[#0f3a6e] text-white' : ''}`}
+                  onClick={() => setFormData({ ...formData, role: 'shipowner' })}
+                >
+                  Shipowner
+                </Button>
+                <Button
+                  type="button"
+                  variant={formData.role === 'shipyard' ? 'default' : 'secondary'}
+                  className={`${formData.role === 'shipyard' ? 'bg-[#134686] hover:bg-[#0f3a6e] text-white' : ''}`}
+                  onClick={() => setFormData({ ...formData, role: 'shipyard' })}
+                >
+                  Shipyard
+                </Button>
+              </div>
+            </div>
+
+            {/* Logo Upload */}
+            <div className="space-y-2">
+              <Label htmlFor="logoFile" className="text-[#134686] font-medium">Upload Logo</Label>
+              <Input id="logoFile" name="logoFile" type="file" accept="image/*" onChange={(e) => {
+                const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                setFormData({ ...formData, logoFile: file });
+              }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
+            </div>
+
+            {formData.role === 'shipowner' ? (
+              <div className="space-y-4">
+              <div className="space-y-2">
+                  <Label htmlFor="fullName" className="text-[#134686] font-medium">Full Name / Company Name</Label>
+                <Input
+                    id="fullName"
+                    name="fullName"
+                  type="text"
+                    placeholder="e.g., John Doe Shipping Co."
+                    value={formData.fullName}
+                  onChange={handleChange}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.fullName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
+                  />
+                  {errors.fullName && (<p className="text-sm text-red-600">{errors.fullName}</p>)}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="contactNumber" className="text-[#134686] font-medium">Contact Number</Label>
+                    <Input id="contactNumber" name="contactNumber" type="tel" autoComplete="tel" placeholder="+63 900 000 0000" value={formData.contactNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.contactNumber && (<p className="text-sm text-red-600">{errors.contactNumber}</p>)}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="officeAddress" className="text-[#134686] font-medium">Office Address (City/Province/Country)</Label>
+                    <Input id="officeAddress" name="officeAddress" type="text" autoComplete="street-address" placeholder="City, Province, Country" value={formData.officeAddress} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.officeAddress ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.officeAddress && (<p className="text-sm text-red-600">{errors.officeAddress}</p>)}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="businessRegistrationNumber" className="text-[#134686] font-medium">Business Registration Number (optional)</Label>
+                  <Input id="businessRegistrationNumber" name="businessRegistrationNumber" type="text" placeholder="BRN-XXXXX" value={formData.businessRegistrationNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
+                </div>
+                <div className="space-y-2">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="vesselName" className="text-[#134686]">Vessel Name</Label>
+                      <Input id="vesselName" name="vesselName" type="text" placeholder="e.g., MV Marinex" value={formData.vesselName} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.vesselName && (<p className="text-sm text-red-600">{errors.vesselName}</p>)}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="imoNumber" className="text-[#134686]">IMO Number / Vessel ID</Label>
+                      <Input id="imoNumber" name="imoNumber" type="text" placeholder="e.g., IMO 1234567" value={formData.imoNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.imoNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.imoNumber && (<p className="text-sm text-red-600">{errors.imoNumber}</p>)}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="vesselType" className="text-[#134686]">Vessel Type</Label>
+                      <Input id="vesselType" name="vesselType" type="text" placeholder="Tanker, Cargo, Passenger, etc." value={formData.vesselType} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselType ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.vesselType && (<p className="text-sm text-red-600">{errors.vesselType}</p>)}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="vesselCapacity" className="text-[#134686]">Vessel Capacity (GT/DWT/passenger)</Label>
+                      <Input id="vesselCapacity" name="vesselCapacity" type="text" placeholder="e.g., 50,000 DWT" value={formData.vesselCapacity} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselCapacity ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.vesselCapacity && (<p className="text-sm text-red-600">{errors.vesselCapacity}</p>)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="shipyardName" className="text-[#134686] font-medium">Shipyard Name</Label>
+                  <Input id="shipyardName" name="shipyardName" type="text" placeholder="e.g., Marinex Shipyards" value={formData.shipyardName} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.shipyardName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                  {errors.shipyardName && (<p className="text-sm text-red-600">{errors.shipyardName}</p>)}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="contactNumber" className="text-[#134686] font-medium">Contact Number</Label>
+                    <Input id="contactNumber" name="contactNumber" type="tel" placeholder="+63 900 000 0000" value={formData.contactNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.contactNumber && (<p className="text-sm text-red-600">{errors.contactNumber}</p>)}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dockyardLocation" className="text-[#134686] font-medium">Office Address (Dockyard Location)</Label>
+                    <Input id="dockyardLocation" name="dockyardLocation" type="text" autoComplete="street-address" placeholder="City, Province, Country" value={formData.dockyardLocation} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.dockyardLocation ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.dockyardLocation && (<p className="text-sm text-red-600">{errors.dockyardLocation}</p>)}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="shipyardBusinessRegNumber" className="text-[#134686] font-medium">Business Registration Number</Label>
+                    <Input id="shipyardBusinessRegNumber" name="shipyardBusinessRegNumber" type="text" placeholder="BRN-XXXXX" value={formData.shipyardBusinessRegNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.shipyardBusinessRegNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.shipyardBusinessRegNumber && (<p className="text-sm text-red-600">{errors.shipyardBusinessRegNumber}</p>)}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="yearsOfOperation" className="text-[#134686] font-medium">Years of Operation</Label>
+                    <Input id="yearsOfOperation" name="yearsOfOperation" type="number" min="0" placeholder="e.g., 10" value={formData.yearsOfOperation} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.yearsOfOperation ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.yearsOfOperation && (<p className="text-sm text-red-600">{errors.yearsOfOperation}</p>)}
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[#134686] font-medium">Docking Services</Label>
+                    {errors.dockingServices && (<p className="text-sm text-red-600">{errors.dockingServices}</p>)}
+                  </div>
+                  {formData.dockingServices.map((svc, idx) => (
+                    <div key={idx} className="rounded-md border border-[#13468633] p-3 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`service-name-${idx}`} className="text-[#134686]">Service Name</Label>
+                          <Input id={`service-name-${idx}`} type="text" placeholder="e.g., Floating Dock" value={svc.name} onChange={(e) => {
+                            const ns = [...formData.dockingServices];
+                            ns[idx] = { ...ns[idx], name: e.target.value };
+                            setFormData({ ...formData, dockingServices: ns });
+                            if (errors[`dockingServices[${idx}].name`]) setErrors({ ...errors, [`dockingServices[${idx}].name`]: '' });
+                          }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`service-sqm-${idx}`} className="text-[#134686]">How many square meters</Label>
+                          <Input id={`service-sqm-${idx}`} type="number" min="0" placeholder="e.g., 200" value={svc.squareMeters} onChange={(e) => {
+                            const ns = [...formData.dockingServices];
+                            ns[idx] = { ...ns[idx], squareMeters: e.target.value };
+                            setFormData({ ...formData, dockingServices: ns });
+                            if (errors[`dockingServices[${idx}].squareMeters`]) setErrors({ ...errors, [`dockingServices[${idx}].squareMeters`]: '' });
+                          }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors[`dockingServices[${idx}].squareMeters`] ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                          {errors[`dockingServices[${idx}].squareMeters`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].squareMeters`]}</p>)}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`service-hours-${idx}`} className="text-[#134686]">How many hours</Label>
+                          <Input id={`service-hours-${idx}`} type="number" min="0" placeholder="e.g., 8" value={svc.hours} onChange={(e) => {
+                            const ns = [...formData.dockingServices];
+                            ns[idx] = { ...ns[idx], hours: e.target.value };
+                            setFormData({ ...formData, dockingServices: ns });
+                            if (errors[`dockingServices[${idx}].hours`]) setErrors({ ...errors, [`dockingServices[${idx}].hours`]: '' });
+                          }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors[`dockingServices[${idx}].hours`] ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                          {errors[`dockingServices[${idx}].hours`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].hours`]}</p>)}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`service-workers-${idx}`} className="text-[#134686]">How many workers</Label>
+                          <Input id={`service-workers-${idx}`} type="number" min="0" placeholder="e.g., 12" value={svc.workers} onChange={(e) => {
+                            const ns = [...formData.dockingServices];
+                            ns[idx] = { ...ns[idx], workers: e.target.value };
+                            setFormData({ ...formData, dockingServices: ns });
+                            if (errors[`dockingServices[${idx}].workers`]) setErrors({ ...errors, [`dockingServices[${idx}].workers`]: '' });
+                          }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors[`dockingServices[${idx}].workers`] ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                          {errors[`dockingServices[${idx}].workers`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].workers`]}</p>)}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`service-days-${idx}`} className="text-[#134686]">How many days</Label>
+                          <Input id={`service-days-${idx}`} type="number" min="0" placeholder="e.g., 5" value={svc.days} onChange={(e) => {
+                            const ns = [...formData.dockingServices];
+                            ns[idx] = { ...ns[idx], days: e.target.value };
+                            setFormData({ ...formData, dockingServices: ns });
+                            if (errors[`dockingServices[${idx}].days`]) setErrors({ ...errors, [`dockingServices[${idx}].days`]: '' });
+                          }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors[`dockingServices[${idx}].days`] ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                          {errors[`dockingServices[${idx}].days`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].days`]}</p>)}
+              </div>
+              <div className="space-y-2">
+                          <Label htmlFor={`service-price-${idx}`} className="text-[#134686]">Service Price</Label>
+                          <Input id={`service-price-${idx}`} type="text" placeholder="e.g., ₱100,000" value={svc.price} onChange={(e) => {
+                            const ns = [...formData.dockingServices];
+                            ns[idx] = { ...ns[idx], price: e.target.value };
+                            setFormData({ ...formData, dockingServices: ns });
+                            if (errors[`dockingServices[${idx}].price`]) setErrors({ ...errors, [`dockingServices[${idx}].price`]: '' });
+                          }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors[`dockingServices[${idx}].price`] ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                          {errors[`dockingServices[${idx}].price`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].price`]}</p>)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 justify-end">
+                        {formData.dockingServices.length > 1 && (
+                          <Button type="button" variant="secondary" onClick={() => {
+                            const ns = formData.dockingServices.filter((_, i) => i !== idx);
+                            setFormData({ ...formData, dockingServices: ns });
+                          }}>Remove</Button>
+                        )}
+                        {idx === formData.dockingServices.length - 1 && (
+                          <Button type="button" onClick={() => {
+                            setFormData({
+                              ...formData,
+                              dockingServices: [...formData.dockingServices, { name: '', squareMeters: '', hours: '', workers: '', days: '', price: '' }]
+                            })
+                          }} className="bg-[#134686] hover:bg-[#0f3a6e] text-white">Add another service</Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dryDockAvailability" className="text-[#134686] font-medium">Dry Dock Slots</Label>
+                  <Input id="dryDockAvailability" name="dryDockAvailability" type="text" placeholder="e.g., 2 or more vessels" value={formData.dryDockAvailability} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.dryDockAvailability ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                  {errors.dryDockAvailability && (<p className="text-sm text-red-600">{errors.dryDockAvailability}</p>)}
+                </div>
+                {/* Emergency Response section removed as requested */}
+                <div className="space-y-2">
+                 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="certificateShipBuilder" className="text-[#134686]">Ship Builder Certificate</Label>
+                      <Input id="certificateShipBuilder" name="certificateShipBuilder" type="file" onChange={(e) => {
+                        const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                        setFormData({ ...formData, certificateShipBuilder: file });
+                        if (errors.certificateShipBuilder) setErrors({ ...errors, certificateShipBuilder: '' });
+                      }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.certificateShipBuilder ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.certificateShipBuilder && (<p className="text-sm text-red-600">{errors.certificateShipBuilder}</p>)}
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="certificateShipRepair" className="text-[#134686]">Ship Repair Certificate</Label>
+                      <Input id="certificateShipRepair" name="certificateShipRepair" type="file" onChange={(e) => {
+                        const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                        setFormData({ ...formData, certificateShipRepair: file });
+                        if (errors.certificateShipRepair) setErrors({ ...errors, certificateShipRepair: '' });
+                      }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.certificateShipRepair ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.certificateShipRepair && (<p className="text-sm text-red-600">{errors.certificateShipRepair}</p>)}
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="certificateOther" className="text-[#134686]">Optional: ISO, Safety, Environmental Compliance</Label>
+                      <Input id="certificateOther" name="certificateOther" type="file" onChange={(e) => {
+                        const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                        setFormData({ ...formData, certificateOther: file });
+                      }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contactPerson" className="text-[#134686] font-medium">Contact Person (for coordination)</Label>
+                  <Input id="contactPerson" name="contactPerson" type="text" placeholder="e.g., Jane Doe" value={formData.contactPerson} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactPerson ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                  {errors.contactPerson && (<p className="text-sm text-red-600">{errors.contactPerson}</p>)}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-[#134686] font-medium">
+                Email
+              </Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder="john@example.com"
+                value={formData.email}
+                onChange={handleChange}
+                className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
+                  errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                }`}
+                required
+              />
+              {errors.email && (
+                <p className="text-sm text-red-600">{errors.email}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-[#134686] font-medium">
+                Password
+              </Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Create a password"
+                value={formData.password}
+                onChange={handleChange}
+                className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
+                  errors.password ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                }`}
+                required
+              />
+              {errors.password && (
+                <p className="text-sm text-red-600">{errors.password}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword" className="text-[#134686] font-medium">
+                Confirm Password
+              </Label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Confirm your password"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
+                  errors.confirmPassword ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                }`}
+                required
+              />
+              {errors.confirmPassword && (
+                <p className="text-sm text-red-600">{errors.confirmPassword}</p>
+              )}
+            </div>
+
+            <Button
+              type="submit"
+              className="w-full bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Creating account...' : 'Create account'}
+            </Button>
+          </form>
+        </CardContent>
+        <CardFooter className="flex flex-col space-y-4">
+          <div className="text-center text-sm text-[#134686]">
+            Already have an account?{' '}
+            <Link
+              href="/auth/login"
+              className="font-medium text-[#0f3a6e] hover:text-[#0c2f59] hover:underline"
+            >
+              Sign in
+            </Link>
+          </div>
+        </CardFooter>
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String           @id @default(cuid())
+  email               String           @unique
+  passwordHash        String
+  role                Role
+  status              AccountStatus    @default(INACTIVE)
+  fullName            String?
+  shipyardName        String?
+  contactNumber       String?
+  officeAddress       String?
+  businessRegNumber   String?
+  logoUrl             String?
+  certificateBuilder  String?
+  certificateRepair   String?
+  certificateOther    String?
+  shipownerVesselInfo Json?
+  shipyardServices    Json?
+  shipyardDryDock     String?
+  contactPerson       String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  drydockBids         DrydockBid[]
+  drydockRequests     DrydockRequest[]
+  vessels             ShipVessel[]
+  services            UserService[]
+
+  @@map("users")
+}
+
+model UserService {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  squareMeters Int
+  hours        Int
+  workers      Int
+  days         Int
+  price        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "user_services_userId_fkey")
+  @@map("user_services")
+}
+
+model ShipVessel {
+  id                        String           @id @default(cuid())
+  userId                    String
+  vesselName                String
+  imoNumber                 String           @unique
+  shipType                  String
+  flag                      String
+  yearOfBuild               Int
+  lengthOverall             Float
+  grossTonnage              Float
+  vesselImageUrl            String?
+  vesselCertificationUrl    String?
+  vesselPlansUrl            String?
+  drydockCertificateUrl     String?
+  safetyCertificateUrl      String?
+  status                    VesselStatus     @default(ACTIVE)
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+  vesselCertificationExpiry DateTime?
+  drydockRequests           DrydockRequest[]
+  user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "ship_vessels_userId_fkey")
+  @@map("ship_vessels")
+}
+
+model DrydockRequest {
+  id             String        @id @default(cuid())
+  userId         String
+  vesselId       String
+  companyName    String
+  companyLogoUrl String?
+  vesselName     String
+  imoNumber      String
+  flag           String
+  shipType       String
+  vesselImageUrl String?
+  priorityLevel  PriorityLevel @default(NORMAL)
+  servicesNeeded Json
+  scopeOfWorkUrl String?
+  status         RequestStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  drydockBids    DrydockBid[]
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vessel         ShipVessel    @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "drydock_requests_userId_fkey")
+  @@index([vesselId], map: "drydock_requests_vesselId_fkey")
+  @@map("drydock_requests")
+}
+
+model DrydockBid {
+  id                    String         @id @default(cuid())
+  drydockRequestId      String
+  shipyardUserId        String
+  shipyardName          String
+  shipyardAddress       String
+  shipyardContactNumber String
+  shipyardContactPerson String?
+  shipyardBusinessReg   String?
+  shipyardLogoUrl       String?
+  certificateBuilder    String?
+  certificateRepair     String?
+  certificateOther      String?
+  servicesOffered       Json
+  serviceCalculations   Json
+  totalBid              Float
+  totalDays             Int
+  parallelDays          Int
+  sequentialDays        Int
+  status                BidStatus      @default(SUBMITTED)
+  submittedAt           DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  drydockRequest        DrydockRequest @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
+  shipyardUser          User           @relation(fields: [shipyardUserId], references: [id], onDelete: Cascade)
+
+  @@index([drydockRequestId], map: "drydock_bids_drydockRequestId_fkey")
+  @@index([shipyardUserId], map: "drydock_bids_shipyardUserId_fkey")
+  @@map("drydock_bids")
+}
+
+enum Role {
+  SHIPOWNER
+  SHIPYARD
+  MARINA
+}
+
+enum AccountStatus {
+  INACTIVE
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum VesselStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  RETIRED
+}
+
+enum PriorityLevel {
+  NORMAL
+  EMERGENCY
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum BidStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}

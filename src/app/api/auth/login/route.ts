@@ -1,0 +1,94 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import bcrypt from 'bcryptjs'
+import { SignJWT } from 'jose'
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
+
+export async function POST(req: NextRequest) {
+  try {
+    const { email, password } = await req.json()
+
+    if (!email || !password) {
+      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
+    }
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        status: true,
+        fullName: true,
+        shipyardName: true,
+        contactNumber: true,
+        officeAddress: true,
+        businessRegNumber: true,
+        logoUrl: true,
+        certificateBuilder: true,
+        certificateRepair: true,
+        certificateOther: true,
+        shipyardDryDock: true,
+        contactPerson: true,
+        shipownerVesselInfo: true,
+        shipyardServices: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+    }
+
+    // Check if account is active
+    if (user.status !== 'ACTIVE') {
+      let errorMessage = 'Account is not active. Please contact administrator.'
+      
+      if (user.status === 'SUSPENDED') {
+        errorMessage = 'Your account has been suspended. Please contact administrator for assistance.'
+      } else if (user.status === 'REJECTED') {
+        errorMessage = 'Your account application was rejected. Please contact administrator for more information.'
+      } else if (user.status === 'INACTIVE') {
+        errorMessage = 'Your account is pending approval. Please wait for administrator approval.'
+      }
+      
+      return NextResponse.json({ 
+        error: errorMessage 
+      }, { status: 403 })
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash)
+    if (!isValidPassword) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+    }
+
+    // Create JWT token
+    const token = await new SignJWT({ 
+      userId: user.id, 
+      email: user.email, 
+      role: user.role 
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('24h')
+      .sign(JWT_SECRET)
+
+    // Return user data without password hash
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { passwordHash, ...userWithoutPassword } = user
+
+    return NextResponse.json({
+      user: userWithoutPassword,
+      token
+    }, { status: 200 })
+
+  } catch (error) {
+    console.error('Login error:', error)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+  }
+}
