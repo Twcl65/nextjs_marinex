@@ -32,6 +32,8 @@ model User {
   drydockRequests     DrydockRequest[]
   vessels             ShipVessel[]
   services            UserService[]
+  bookings            DrydockBooking[]
+  shipyardBookings    DrydockBooking[] @relation("ShipyardBookings")
 
   @@map("users")
 }
@@ -97,6 +99,7 @@ model DrydockRequest {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   drydockBids    DrydockBid[]
+  bookings       DrydockBooking[]
   user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   vessel         ShipVessel    @relation(fields: [vesselId], references: [id], onDelete: Cascade)
 
@@ -118,6 +121,7 @@ model DrydockBid {
   certificateBuilder    String?
   certificateRepair     String?
   certificateOther      String?
+  bidCertificateUrl     String?
   servicesOffered       Json
   serviceCalculations   Json
   totalBid              Float
@@ -129,6 +133,7 @@ model DrydockBid {
   updatedAt             DateTime       @updatedAt
   drydockRequest        DrydockRequest @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
   shipyardUser          User           @relation(fields: [shipyardUserId], references: [id], onDelete: Cascade)
+  bookings              DrydockBooking[]
 
   @@index([drydockRequestId], map: "drydock_bids_drydockRequestId_fkey")
   @@index([shipyardUserId], map: "drydock_bids_shipyardUserId_fkey")
@@ -168,10 +173,42 @@ enum RequestStatus {
   COMPLETED
 }
 
+model DrydockBooking {
+  id              String           @id @default(cuid())
+  drydockRequestId String
+  drydockBidId    String
+  userId          String
+  shipyardUserId  String
+  status          BookingStatus    @default(PENDING)
+  bookingDate     DateTime         @default(now())
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  drydockRequest  DrydockRequest   @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
+  drydockBid      DrydockBid       @relation(fields: [drydockBidId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shipyardUser    User             @relation("ShipyardBookings", fields: [shipyardUserId], references: [id], onDelete: Cascade)
+
+  @@index([drydockRequestId], map: "drydock_bookings_drydockRequestId_fkey")
+  @@index([drydockBidId], map: "drydock_bookings_drydockBidId_fkey")
+  @@index([userId], map: "drydock_bookings_userId_fkey")
+  @@index([shipyardUserId], map: "drydock_bookings_shipyardUserId_fkey")
+  @@map("drydock_bookings")
+}
+
 enum BidStatus {
   SUBMITTED
   UNDER_REVIEW
   ACCEPTED
   REJECTED
   WITHDRAWN
+  RECOMMENDED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 }

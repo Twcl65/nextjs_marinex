@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
       totalBid,
       totalDays,
       parallelDays,
-      sequentialDays
+      sequentialDays,
+      bidCertificateUrl
     } = body
 
     // Fetch shipyard user information
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
         id, drydockRequestId, shipyardUserId, shipyardName, shipyardAddress, 
         shipyardContactNumber, shipyardContactPerson, shipyardBusinessReg, 
         shipyardLogoUrl, certificateBuilder, certificateRepair, certificateOther,
-        servicesOffered, serviceCalculations, totalBid, totalDays, 
+        bidCertificateUrl, servicesOffered, serviceCalculations, totalBid, totalDays, 
         parallelDays, sequentialDays, status, submittedAt, updatedAt
       ) VALUES (
         ${bidId}, ${drydockRequestId}, ${shipyardUserId}, 
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
         ${shipyardUser.certificateBuilder}, 
         ${shipyardUser.certificateRepair}, 
         ${shipyardUser.certificateOther},
+        ${bidCertificateUrl || null},
         ${JSON.stringify(servicesOffered)}, 
         ${JSON.stringify(serviceCalculations)}, 
         ${totalBid}, ${totalDays}, ${parallelDays}, ${sequentialDays}, 

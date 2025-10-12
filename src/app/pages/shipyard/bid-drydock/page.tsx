@@ -692,8 +692,8 @@ export default function BidDrydockPage() {
         setShowCalculationDialog(true);
     }
 
-    // Generate PDF using jsPDF
-    function generatePDF(results: {
+    // Generate PDF using jsPDF and upload to S3
+    async function generatePDF(results: {
         services: Array<{
             name: string;
             reqSqM: number;
@@ -711,7 +711,7 @@ export default function BidDrydockPage() {
         finalBid: number;
         maxServiceDays: number;
         totalServiceDays: number;
-    }) {
+    }): Promise<string | null> {
         const currentDate = new Date().toLocaleDateString();
         const vesselName = selectedRequest?.vessel?.name || 'Unknown Vessel';
         const companyName = selectedRequest?.company_name || 'Unknown Company';
@@ -728,7 +728,7 @@ export default function BidDrydockPage() {
         // Title
         doc.setFontSize(18);
         doc.setFont('helvetica', 'bold');
-        doc.text('BID CALCULATION REPORT', 105, 22, { align: 'center' });
+        doc.text('DRYDOCK SERVICE BID', 105, 22, { align: 'center' });
         
         // Subtitle
         doc.setFontSize(10);
@@ -892,20 +892,56 @@ export default function BidDrydockPage() {
         doc.text('This report was generated automatically by the Marinex system.', 20, yPosition);
         doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPosition + 5);
         
-        // Create blob and open in new tab
-        const pdfBlob = doc.output('blob');
-        const pdfUrl = URL.createObjectURL(pdfBlob);
-        window.open(pdfUrl, '_blank');
-        
-        // Clean up the URL after a delay
-        setTimeout(() => {
-            URL.revokeObjectURL(pdfUrl);
-        }, 1000);
-        
-        toast({
-            title: "Success",
-            description: "Bid calculation PDF opened successfully!",
-        });
+        try {
+            // Create blob and upload to S3
+            const pdfBlob = doc.output('blob');
+            
+            // Get presigned URL for upload
+            const presignResponse = await fetch('/api/uploads/presign', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    fileType: 'application/pdf',
+                    prefix: 'bid-certificates'
+                }),
+            });
+
+            if (!presignResponse.ok) {
+                throw new Error('Failed to get presigned URL');
+            }
+
+            const { url: presignedUrl, publicUrl } = await presignResponse.json();
+
+            // Upload PDF to S3
+            const uploadResponse = await fetch(presignedUrl, {
+                method: 'PUT',
+                body: pdfBlob,
+                headers: {
+                    'Content-Type': 'application/pdf',
+                },
+            });
+
+            if (!uploadResponse.ok) {
+                throw new Error('Failed to upload PDF to S3');
+            }
+
+            toast({
+                title: "Success",
+                description: "Bid certificate PDF generated and saved successfully!",
+            });
+
+            return publicUrl;
+        } catch (error) {
+            console.error('Error generating/uploading PDF:', error);
+            toast({
+                title: "Error",
+                description: "Failed to generate bid certificate PDF. Please try again.",
+                variant: "destructive",
+            });
+            return null;
+        }
     }
 
   return (
@@ -1401,13 +1437,16 @@ export default function BidDrydockPage() {
                                          <Button 
                                              variant="outline" 
                                              size="sm"
-                                             onClick={() => {
-                                                 // View PDF with calculation results
-                                                 generatePDF(calculationResults);
+                                             onClick={async () => {
+                                                 // Generate and view PDF with calculation results
+                                                 const pdfUrl = await generatePDF(calculationResults);
+                                                 if (pdfUrl) {
+                                                     window.open(pdfUrl, '_blank');
+                                                 }
                                              }}
                                              className="text-xs"
                                          >
-                                             View PDF
+                                             Generate & View PDF
                                          </Button>
                                      </div>
                                  </div>
@@ -1431,6 +1470,24 @@ export default function BidDrydockPage() {
                                 }
 
                                 try {
+                                    // Generate PDF certificate first
+                                    toast({
+                                        title: "Generating Certificate",
+                                        description: "Creating bid certificate PDF...",
+                                    });
+
+                                    const certificateUrl = await generatePDF(calculationResults);
+                                    
+                                    if (!certificateUrl) {
+                                        toast({
+                                            title: "Error",
+                                            description: "Failed to generate bid certificate. Please try again.",
+                                            variant: "destructive",
+                                        });
+                                        return;
+                                    }
+
+                                    // Submit bid with certificate URL
                                     const response = await fetch('/api/shipyard/submit-bid', {
                                         method: 'POST',
                                         headers: {
@@ -1444,14 +1501,15 @@ export default function BidDrydockPage() {
                                             totalBid: calculationResults.finalBid,
                                             totalDays: calculationResults.maxServiceDays,
                                             parallelDays: calculationResults.maxServiceDays,
-                                            sequentialDays: calculationResults.totalServiceDays
+                                            sequentialDays: calculationResults.totalServiceDays,
+                                            bidCertificateUrl: certificateUrl
                                         }),
                                     });
 
                                     if (response.ok) {
                                         toast({
                                             title: "Success",
-                                            description: "Bid submitted successfully!",
+                                            description: "Bid submitted successfully with certificate!",
                                         });
                                         setShowCalculationDialog(false);
                                         setOpenBidDialog(false);

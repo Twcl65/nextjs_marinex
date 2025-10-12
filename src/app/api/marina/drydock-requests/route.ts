@@ -3,9 +3,9 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
-    console.log('Fetching ALL drydock requests for shipyards (using same query as /api/drydock-requests)...')
+    console.log('Fetching ALL drydock requests for marina authority...')
     
-    // Use the exact same query as /api/drydock-requests but without userId filter
+    // Fetch all drydock requests for marina authority view
     const drydockRequests = await prisma.$queryRaw`
       SELECT 
         dr.id,

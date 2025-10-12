@@ -740,19 +740,19 @@ Marinex Authority Team
           </div>
 
           {/* Search and Filter Section */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-4 mb-6">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">Search:</Label>
               <Input
                 id="search"
                 placeholder="Search by email, name, or business name..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-80"
+                className="w-full max-w-80"
               />
             </div>
             <div className="flex items-center gap-2">
-              <Label htmlFor="role-filter" className="text-sm font-medium ">Filter by role:</Label>
+              <Label htmlFor="role-filter" className="text-sm font-medium whitespace-nowrap">Filter by role:</Label>
               <Select value={roleFilter} onValueChange={setRoleFilter}>
                 <SelectTrigger className="w-32">
                   <SelectValue placeholder="All roles" />
@@ -765,7 +765,7 @@ Marinex Authority Team
               </Select>
             </div>
             <div className="flex items-center gap-2">
-              <Label htmlFor="status-filter" className="text-sm font-medium ">Filter by status:</Label>
+              <Label htmlFor="status-filter" className="text-sm font-medium whitespace-nowrap">Filter by status:</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-32">
                   <SelectValue placeholder="All statuses" />
@@ -781,23 +781,21 @@ Marinex Authority Team
             </div>
           </div>
 
-          {/* Table Container - Fixed */}
+          {/* Table Container - Responsive */}
           <div className="border border-gray-300 rounded-lg overflow-hidden w-full mb-3">
-            {/* Table Content with Horizontal Scroll */}
-            <div className="overflow-x-auto w-full">
-              <Table className="w-full min-w-[900px]">
-                <TableHeader>
-                  <TableRow className="align-middle h-4">
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[80px]">Logo</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[150px]">Name</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[180px]">Email</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[120px]">Contact</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[80px]">Role</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[100px]">Status</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[100px]">Reg Date</TableHead>
-                    <TableHead className="whitespace-nowrap py-0 h-11 w-[100px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow className="align-middle h-4">
+                  <TableHead className="whitespace-nowrap py-0 h-11 w-16">Logo</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 min-w-[120px]">Name</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 min-w-[150px]">Email</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 min-w-[100px]">Contact</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 w-20">Role</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 w-24">Status</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 w-24">Reg Date</TableHead>
+                  <TableHead className="whitespace-nowrap py-0 h-11 w-24">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
@@ -819,14 +817,20 @@ Marinex Authority Team
                         <TableCell className="whitespace-nowrap py-2">
                           <UserLogo user={user} />
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-2">
-                          <span className="font-medium text-gray">{getDisplayName(user) || 'N/A'}</span>
+                        <TableCell className="py-2">
+                          <span className="font-medium text-gray truncate block max-w-[120px]" title={getDisplayName(user) || 'N/A'}>
+                            {getDisplayName(user) || 'N/A'}
+                          </span>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-2">
-                          <span className="text-sm text-gray-600">{user.email}</span>
+                        <TableCell className="py-2">
+                          <span className="text-sm text-gray-600 truncate block max-w-[150px]" title={user.email}>
+                            {user.email}
+                          </span>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-2">
-                          <span className="text-sm text-gray-600">{user.contactNumber || 'N/A'}</span>
+                        <TableCell className="py-2">
+                          <span className="text-sm text-gray-600 truncate block max-w-[100px]" title={user.contactNumber || 'N/A'}>
+                            {user.contactNumber || 'N/A'}
+                          </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-2">
                           <span className="text-sm text-gray capitalize">{user.role.toLowerCase()}</span>
@@ -875,7 +879,6 @@ Marinex Authority Team
                   )}
                 </TableBody>
               </Table>
-            </div>
           </div>
 
           {/* Pagination Controls - Fixed Position */}
