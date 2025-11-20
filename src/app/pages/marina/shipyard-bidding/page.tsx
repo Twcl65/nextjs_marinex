@@ -29,34 +29,64 @@ import Image from "next/image";
 function ShipyardLogo({ logoUrl, shipyardName }: { logoUrl: string; shipyardName: string }) {
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [imageError, setImageError] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
+        // Reset states when logoUrl changes
+        setImageUrl(null);
+        setImageError(false);
+        setIsLoading(false);
+
         if (logoUrl) {
-            setImageError(false);
+            setIsLoading(true);
             
-            if (logoUrl.includes('s3.ap-southeast-2.amazonaws.com')) {
+            // Check if it's an S3 URL or contains amazonaws
+            if (logoUrl.includes('s3.amazonaws.com') || logoUrl.includes('amazonaws.com')) {
                 // Fetch signed URL for S3 images
                 fetch(`/api/signed-url?url=${encodeURIComponent(logoUrl)}`)
-                    .then(res => res.json())
+                    .then(res => {
+                        if (!res.ok) {
+                            throw new Error('Failed to fetch signed URL');
+                        }
+                        return res.json();
+                    })
                     .then(data => {
                         if (data.signedUrl) {
                             setImageUrl(data.signedUrl);
+                            setIsLoading(false);
+                        } else {
+                            // Fallback to original URL if no signedUrl
+                            console.warn('No signedUrl in response, using original URL');
+                            setImageUrl(logoUrl);
+                            setIsLoading(false);
                         }
                     })
                     .catch(err => {
                         console.error('Error fetching signed URL:', err);
-                        setImageError(true);
+                        // Fallback to original URL
+                        setImageUrl(logoUrl);
+                        setIsLoading(false);
                     });
             } else {
                 // For non-S3 URLs, use directly
                 setImageUrl(logoUrl);
+                setIsLoading(false);
             }
-        } else {
-            setImageUrl(null);
-            setImageError(false);
         }
     }, [logoUrl]);
 
+    // Show loading state
+    if (isLoading) {
+        return (
+            <div className="w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center animate-pulse">
+                <span className="text-gray-400 text-xs font-medium">
+                    {shipyardName.charAt(0).toUpperCase()}
+                </span>
+            </div>
+        );
+    }
+
+    // Show error/fallback state
     if (imageError || !imageUrl) {
         return (
             <div className="w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center">
@@ -74,7 +104,11 @@ function ShipyardLogo({ logoUrl, shipyardName }: { logoUrl: string; shipyardName
             width={48}
             height={48}
             className="w-12 h-12 rounded-full object-cover border border-gray-200"
-            onError={() => setImageError(true)}
+            onError={() => {
+                console.error('Image failed to load:', imageUrl);
+                setImageError(true);
+            }}
+            onLoad={() => setIsLoading(false)}
         />
     );
 }
@@ -415,8 +449,8 @@ export default function ShipyardBiddingPage() {
                 <div className="p-5 pt-0 mt-0">
                     <div className="flex justify-between items-center">
                         <div>
-                            <h1 className="text-xl md:text-xl font-bold text-[#134686]">Browse and Monitor Drydock Bidding</h1>
-                            <p className="text-sm text-muted-foreground mt-1">Browse drydock requests and view shipyard bidders for each request.</p>
+                            <h1 className="text-lg md:text-xl font-bold text-[#134686]">Browse and Monitor Drydock Bidding</h1>
+                            <p className="text-sm text-gray-500 mt-1">Browse drydock requests and view shipyard bidders for each request.</p>
                         </div>
                         <Button 
                             onClick={() => {
@@ -483,7 +517,7 @@ export default function ShipyardBiddingPage() {
                                         <TableHead className="min-w-[150px] py-3">Company</TableHead>
                                         <TableHead className="min-w-[200px] py-3">Vessel</TableHead>
                                         <TableHead className="w-20 py-3">Priority</TableHead>
-                                        <TableHead className="min-w-[200px] py-3">Services Needed</TableHead>
+                                        <TableHead className="min-w-[150px] py-3">Services Needed</TableHead>
                                         <TableHead className="min-w-[120px] py-3">Request Date</TableHead>
                                         <TableHead className="min-w-[100px] py-3">Status</TableHead>
                                         <TableHead className="w-20 py-3">Actions</TableHead>

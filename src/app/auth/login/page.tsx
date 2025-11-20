@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const { user, login, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const { toast } = useToast();
 
   // Redirect if already logged in
   useEffect(() => {
@@ -60,8 +62,18 @@ export default function LoginPage() {
       const result = await login(formData.email, formData.password);
       
       if (result.success) {
-        // The useEffect will handle the redirect
-        console.log('Login successful');
+        // Show success toast
+        toast({
+          title: 'Successfully logged in',
+          description: 'Welcome back! Redirecting to your dashboard...',
+          variant: 'success',
+        });
+        
+        // Small delay to show toast before redirect
+        setTimeout(() => {
+          // The useEffect will handle the redirect
+          console.log('Login successful');
+        }, 500);
       } else {
         setError(result.error || 'Login failed');
       }
@@ -73,8 +85,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-cover bg-center bg-no-repeat py-10 px-4 sm:px-6 lg:px-8" style={{ backgroundImage: "url('/assets/background.jpg')" }}>
-      <Card className="w-full max-w-sm sm:max-w-md shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+    <div className="min-h-screen flex items-center justify-center py-10 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-[3px]"
+        style={{ backgroundImage: "url('/assets/background.jpg')" }}
+      />
+      <Card className="w-full max-w-sm sm:max-w-md shadow-xl border-0 bg-white backdrop-blur-sm relative z-10">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-xl sm:text-2xl font-bold text-[#134686]">
             Welcome back
@@ -128,7 +144,7 @@ export default function LoginPage() {
                   onCheckedChange={(checked) => setRememberMe(checked === true)}
                   className="border-[#1346864d] data-[state=checked]:bg-[#134686] data-[state=checked]:border-[#134686]"
                 />
-                <Label htmlFor="remember" className="text-sm text-[#134686]">
+                <Label htmlFor="remember" className="text-sm text-[#134686] bg-white">
                   Remember me
                 </Label>
               </div>
@@ -141,7 +157,7 @@ export default function LoginPage() {
             </div>
             <Button
               type="submit"
-              className="w-full bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium"
+              className="w-full bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium cursor-pointer"
               disabled={isLoading}
             >
               {isLoading ? 'Signing in...' : 'Sign in'}

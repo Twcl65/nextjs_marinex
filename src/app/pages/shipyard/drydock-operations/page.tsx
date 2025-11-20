@@ -1,464 +1,1155 @@
+"use client"
+
 import { ShipyardSidebar } from "@/components/shipyard-sidebar"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { AppHeader } from "@/components/AppHeader"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Progress } from "@/components/ui/progress"
-import { Wrench, Ship, Calendar, Clock, Users, AlertTriangle, CheckCircle, Play, Pause } from "lucide-react"
+import { Wrench, Ship, Calendar, CheckCircle, Search } from "lucide-react"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
+import { useEffect, useState, useCallback } from "react"
+import React from "react"
+import { useAuth } from "@/contexts/AuthContext"
+import { useToast } from "@/hooks/use-toast"
+import { Toaster } from "@/components/ui/toaster"
+
+interface DrydockBooking {
+  id: string
+  status: string
+  vesselName: string
+  imoNumber: string
+  companyName: string
+  companyLogoUrl: string | null
+  shipownerName: string
+  shipownerLogoUrl: string | null
+  totalDays: number
+  startDate: string
+  endDate: string
+  progress: number
+  shipyardName: string
+  totalBid: number
+  servicesOffered?: Record<string, unknown>
+}
+
+interface Service {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  progress: number
+}
 
 export default function DrydockOperationsPage() {
+  const { user } = useAuth()
+  const { toast } = useToast()
+  const [bookings, setBookings] = useState<DrydockBooking[]>([])
+  const [filteredBookings, setFilteredBookings] = useState<DrydockBooking[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [selectedBooking, setSelectedBooking] = useState<DrydockBooking | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [services, setServices] = useState<Service[]>([])
+  const [loadingServices, setLoadingServices] = useState(false)
+  const [isProgressDialogOpen, setIsProgressDialogOpen] = useState(false)
+  const [selectedService, setSelectedService] = useState<Service | null>(null)
+  const [progressLevel, setProgressLevel] = useState<string>('')
+  const [progressComment, setProgressComment] = useState('')
+  const [progressImage, setProgressImage] = useState<File | null>(null)
+  const [updatingProgress, setUpdatingProgress] = useState(false)
+  const [existingProgress, setExistingProgress] = useState<Array<{
+    id: string;
+    progressLevel: string;
+    progressPercent: number;
+    comment: string | null;
+    imageUrl: string | null;
+    updatedAt: string;
+  }>>([])
+  const [allProgress, setAllProgress] = useState<Array<{
+    id: string;
+    progressLevel: string;
+    progressPercent: number;
+    comment: string | null;
+    imageUrl: string | null;
+    updatedAt: string;
+  }>>([])
+  const [showNewUpdateForm, setShowNewUpdateForm] = useState(false)
+  const [isCertificateDialogOpen, setIsCertificateDialogOpen] = useState(false)
+  const [selectAllCertificates, setSelectAllCertificates] = useState(false)
+  const [selectedCertificates, setSelectedCertificates] = useState({
+    vesselPlans: false,
+    drydockReport: false,
+    drydockCertificate: false
+  })
+  const [issuingCertificates, setIssuingCertificates] = useState(false)
+
+  const calculateBookingProgress = async (bookingId: string): Promise<number> => {
+    try {
+      const response = await fetch(`/api/drydock-services?drydockBookingId=${bookingId}`)
+      const data = await response.json()
+      
+      if (data.success && data.data && data.data.length > 0) {
+        // Calculate average progress from all services
+        const totalProgress = data.data.reduce((sum: number, service: { progress: number }) => {
+          return sum + (service.progress || 0)
+        }, 0)
+        const averageProgress = Math.round(totalProgress / data.data.length)
+        return averageProgress
+      }
+      // If no services found, return 0
+      return 0
+    } catch (error) {
+      console.error('Error calculating booking progress:', error)
+      return 0
+    }
+  }
+
+  const fetchBookings = useCallback(async () => {
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/shipyard/drydock-bookings?shipyardUserId=${user?.id}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        // Filter for confirmed bookings and transform data
+        const confirmedBookingsPromises = data.bookings
+          .filter((booking: { status: string }) => booking.status === 'CONFIRMED')
+          .map(async (booking: {
+            id: string;
+            status: string;
+            vesselName: string;
+            imoNumber: string;
+            companyName: string;
+            companyLogoUrl: string | null;
+            shipownerName: string;
+            shipownerLogoUrl: string | null;
+            totalDays: number;
+            bookingDate: string;
+            progress: number;
+            shipyardName: string;
+            totalBid: number;
+            servicesOffered: Record<string, unknown>;
+          }) => {
+            // Calculate actual progress from services
+            const progress = await calculateBookingProgress(booking.id)
+            
+            return {
+              id: booking.id,
+              status: booking.status,
+              vesselName: booking.vesselName,
+              imoNumber: booking.imoNumber,
+              companyName: booking.companyName,
+              companyLogoUrl: booking.companyLogoUrl,
+              shipownerName: booking.shipownerName,
+              shipownerLogoUrl: booking.shipownerLogoUrl,
+              totalDays: booking.totalDays,
+              startDate: new Date(booking.bookingDate).toLocaleDateString('en-GB'),
+              endDate: new Date(new Date(booking.bookingDate).getTime() + booking.totalDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
+              progress: progress, // Calculate from actual services
+              shipyardName: booking.shipyardName,
+              totalBid: booking.totalBid,
+              servicesOffered: booking.servicesOffered
+            }
+          })
+        
+        const confirmedBookings = await Promise.all(confirmedBookingsPromises)
+        setBookings(confirmedBookings)
+        setFilteredBookings(confirmedBookings)
+      }
+    } catch (error) {
+      console.error('Error fetching bookings:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchBookings()
+    }
+  }, [user?.id, fetchBookings])
+
+  useEffect(() => {
+    let filtered = bookings
+
+    // Filter by search term
+    if (searchTerm) {
+      filtered = filtered.filter(booking => 
+        booking.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        booking.vesselName.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+
+    // Filter by status
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(booking => booking.status.toLowerCase() === statusFilter.toLowerCase())
+    }
+
+    setFilteredBookings(filtered)
+  }, [bookings, searchTerm, statusFilter])
+
+  const handleCardClick = async (booking: DrydockBooking) => {
+    setSelectedBooking(booking)
+    setIsDialogOpen(true)
+    setLoadingServices(true)
+    
+    try {
+      // Fetch real services data from API
+      console.log('Fetching services for booking ID:', booking.id)
+      const response = await fetch(`/api/drydock-services?drydockBookingId=${booking.id}`)
+      const data = await response.json()
+      console.log('Services API response:', data)
+      
+      if (data.success && data.data && data.data.length > 0) {
+        // Transform the database services to our Service interface
+        const transformedServices: Service[] = data.data.map((service: {
+          id: string;
+          serviceName: string;
+          startDate: string;
+          endDate: string;
+          progress: number;
+        }) => {
+          return {
+            id: service.id,
+            name: service.serviceName || `Service ${service.id.slice(-4)}`, // Use the actual serviceName from database
+            startDate: new Date(service.startDate).toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            }),
+            endDate: new Date(service.endDate).toLocaleDateString('en-US', { 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            }),
+            progress: service.progress || 0
+          }
+        })
+        
+        // Calculate actual progress from services
+        const totalProgress = transformedServices.reduce((sum, service) => sum + service.progress, 0)
+        const averageProgress = transformedServices.length > 0 
+          ? Math.round(totalProgress / transformedServices.length) 
+          : 0
+        
+        // Update the selected booking with calculated progress
+        setSelectedBooking({
+          ...booking,
+          progress: averageProgress
+        })
+        
+        setServices(transformedServices)
+      } else {
+        // If no services found in database, create services from servicesOffered
+        if (booking.servicesOffered && Object.keys(booking.servicesOffered).length > 0) {
+          const servicesFromOffered: Service[] = Object.entries(booking.servicesOffered).map(([name, _details]: [string, unknown], index) => ({
+            id: `offered-${index}`,
+            name: name,
+            startDate: booking.startDate,
+            endDate: booking.endDate,
+            progress: 0 // Default progress for offered services
+          }))
+          
+          // Since all services have 0 progress, set booking progress to 0
+          setSelectedBooking({
+            ...booking,
+            progress: 0
+          })
+          
+          setServices(servicesFromOffered)
+        } else {
+          // No services at all, progress should be 0
+          setSelectedBooking({
+            ...booking,
+            progress: 0
+          })
+          setServices([])
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error)
+      setServices([])
+      // On error, set progress to 0
+      setSelectedBooking({
+        ...booking,
+        progress: 0
+      })
+    } finally {
+      setLoadingServices(false)
+    }
+  }
+
+  const closeDialog = () => {
+    setIsDialogOpen(false)
+    setSelectedBooking(null)
+    setServices([])
+  }
+
+  const handleEditProgress = async (service: Service) => {
+    setSelectedService(service)
+    setProgressLevel('')
+    setProgressComment('')
+    setProgressImage(null)
+    setShowNewUpdateForm(false)
+    setIsProgressDialogOpen(true)
+    
+    // Fetch all progress data
+    try {
+      const response = await fetch(`/api/drydock-progress?serviceId=${service.id}`)
+      const data = await response.json()
+      
+      if (data.success && data.data.length > 0) {
+        setAllProgress(data.data)
+        // Set the current progress level based on the latest update
+        const latestProgress = data.data[0]
+        setProgressLevel(latestProgress.progressLevel)
+        // Filter progress by the selected level
+        filterProgressByLevel(latestProgress.progressLevel, data.data)
+      } else {
+        setAllProgress([])
+        setExistingProgress([])
+      }
+    } catch (error) {
+      console.error('Error fetching progress data:', error)
+      setAllProgress([])
+      setExistingProgress([])
+    }
+  }
+
+  const filterProgressByLevel = (level: string, progressData: Array<{
+    id: string;
+    progressLevel: string;
+    progressPercent: number;
+    comment: string | null;
+    imageUrl: string | null;
+    updatedAt: string;
+  }>) => {
+    const filtered = progressData.filter(progress => progress.progressLevel === level)
+    setExistingProgress(filtered)
+  }
+
+  const handleLevelChange = (level: string) => {
+    setProgressLevel(level)
+    setShowNewUpdateForm(false)
+    filterProgressByLevel(level, allProgress)
+  }
+
+  const closeProgressDialog = () => {
+    setIsProgressDialogOpen(false)
+    setSelectedService(null)
+    setProgressLevel('')
+    setProgressComment('')
+    setProgressImage(null)
+    setExistingProgress([])
+    setAllProgress([])
+    setShowNewUpdateForm(false)
+  }
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setProgressImage(file)
+    }
+  }
+
+  const getProgressPercentage = (level: string) => {
+    switch (level) {
+      case 'Level 1': return 15
+      case 'Level 2': return 25
+      case 'Level 3': return 50
+      case 'Level 4': return 75
+      case 'Level 5': return 100
+      default: return 0
+    }
+  }
+
+  const handleUpdateProgress = async () => {
+    if (!selectedService || !progressLevel) {
+      alert('Please select a progress level')
+      return
+    }
+
+    try {
+      setUpdatingProgress(true)
+      
+      const formData = new FormData()
+      formData.append('serviceId', selectedService.id)
+      formData.append('progress', getProgressPercentage(progressLevel).toString())
+      formData.append('comment', progressComment)
+      formData.append('date', new Date().toISOString())
+      
+      if (progressImage) {
+        formData.append('image', progressImage)
+      }
+
+      const response = await fetch('/api/drydock-progress', {
+        method: 'POST',
+        body: formData
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        const newProgress = getProgressPercentage(progressLevel)
+        
+        // Calculate updated services with new progress
+        const updatedServices = services.map(service => 
+          service.id === selectedService.id 
+            ? { ...service, progress: newProgress }
+            : service
+        )
+        
+        // Calculate new average progress from all updated services
+        const totalProgress = updatedServices.reduce((sum, service) => sum + service.progress, 0)
+        const averageProgress = updatedServices.length > 0 
+          ? Math.round(totalProgress / updatedServices.length) 
+          : 0
+        
+        // Update the service progress in the local state
+        setServices(updatedServices)
+        
+        // Update the booking progress in the bookings list and selected booking
+        if (selectedBooking) {
+          // Update the selected booking in the dialog
+          setSelectedBooking({
+            ...selectedBooking,
+            progress: averageProgress
+          })
+          
+          // Update the booking in the bookings list
+          setBookings(prevBookings =>
+            prevBookings.map(booking =>
+              booking.id === selectedBooking.id
+                ? { ...booking, progress: averageProgress }
+                : booking
+            )
+          )
+          
+          setFilteredBookings(prevFiltered =>
+            prevFiltered.map(booking =>
+              booking.id === selectedBooking.id
+                ? { ...booking, progress: averageProgress }
+                : booking
+            )
+          )
+        }
+        
+        // Refresh the progress data
+        const response = await fetch(`/api/drydock-progress?serviceId=${selectedService.id}`)
+        const data = await response.json()
+        if (data.success) {
+          setAllProgress(data.data)
+          // Filter by the current selected level
+          filterProgressByLevel(progressLevel, data.data)
+        }
+        
+        // Reset form
+        setProgressComment('')
+        setProgressImage(null)
+        setShowNewUpdateForm(false)
+        
+        alert('Progress updated successfully!')
+      } else {
+        alert('Failed to update progress: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Error updating progress:', error)
+      alert('Error updating progress')
+    } finally {
+      setUpdatingProgress(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'confirmed':
+        return 'bg-green-500'
+      case 'in_progress':
+        return 'bg-blue-500'
+      case 'completed':
+        return 'bg-gray-500'
+      default:
+        return 'bg-gray-500'
+    }
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'confirmed':
+        return 'Confirmed'
+      case 'in_progress':
+        return 'In Progress'
+      case 'completed':
+        return 'Completed'
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()
+    }
+  }
+
+  const areAllServicesCompleted = (servicesList: Service[]): boolean => {
+    if (servicesList.length === 0) return false
+    return servicesList.every(service => service.progress >= 100)
+  }
+
+  const handleIssueCertificates = () => {
+    // Close the services dialog first
+    setIsDialogOpen(false)
+    // Then open the certificate dialog
+    setIsCertificateDialogOpen(true)
+  }
+
+  const handleSelectAllCertificates = (checked: boolean) => {
+    setSelectAllCertificates(checked)
+    setSelectedCertificates({
+      vesselPlans: checked,
+      drydockReport: checked,
+      drydockCertificate: checked
+    })
+  }
+
+  const handleCertificateChange = (certificate: 'vesselPlans' | 'drydockReport' | 'drydockCertificate', checked: boolean) => {
+    const newSelected = {
+      ...selectedCertificates,
+      [certificate]: checked
+    }
+    setSelectedCertificates(newSelected)
+    
+    // Update select all based on all certificates being selected
+    const allSelected = newSelected.vesselPlans && newSelected.drydockReport && newSelected.drydockCertificate
+    setSelectAllCertificates(allSelected)
+  }
+
+  const handleSubmitCertificates = async () => {
+    if (!selectedBooking) {
+      toast({
+        title: "Error",
+        description: "No booking selected",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check if at least one certificate is selected
+    if (!selectedCertificates.vesselPlans && !selectedCertificates.drydockReport && !selectedCertificates.drydockCertificate) {
+      toast({
+        title: "Error",
+        description: "Please select at least one certificate to issue",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIssuingCertificates(true)
+
+      const response = await fetch('/api/shipyard/issue-certificates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: selectedBooking.id,
+          vesselPlans: selectedCertificates.vesselPlans,
+          drydockReport: selectedCertificates.drydockReport,
+          drydockCertificate: selectedCertificates.drydockCertificate
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to issue certificates')
+      }
+
+      if (data.success) {
+        // Get list of issued certificates
+        const issuedCertNames = data.certificates.map((cert: { name: string }) => cert.name).join(', ')
+        
+        toast({
+          title: "Certificates Issued Successfully!",
+          description: `Issued certificates: ${issuedCertNames}. A notification has been sent to the vessel owner.`,
+        })
+        
+        // Close certificate dialog
+        setIsCertificateDialogOpen(false)
+        
+        // Reset checkboxes
+        setSelectAllCertificates(false)
+        setSelectedCertificates({
+          vesselPlans: false,
+          drydockReport: false,
+          drydockCertificate: false
+        })
+        
+        // Refresh bookings to update progress
+        await fetchBookings()
+        
+        // Close services dialog as well
+        setIsDialogOpen(false)
+        setSelectedBooking(null)
+      } else {
+        throw new Error(data.error || 'Failed to issue certificates')
+      }
+    } catch (error) {
+      console.error('Error issuing certificates:', error)
+      toast({
+        title: "Error",
+        description: `Failed to issue certificates: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive",
+      })
+    } finally {
+      setIssuingCertificates(false)
+    }
+  }
+
+  const closeCertificateDialog = (open: boolean) => {
+    setIsCertificateDialogOpen(open)
+    // Reset checkboxes when closing
+    if (!open) {
+      setSelectAllCertificates(false)
+      setSelectedCertificates({
+        vesselPlans: false,
+        drydockReport: false,
+        drydockCertificate: false
+      })
+      // Reopen the services dialog if certificate dialog is being closed
+      if (selectedBooking) {
+        setIsDialogOpen(true)
+      }
+    }
+  }
+
   return (
     <ProtectedRoute allowedRoles={['SHIPYARD']}>
       <SidebarProvider>
         <ShipyardSidebar />
         <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-            <SidebarTrigger className="-ml-1" />
-            <Separator
-              orientation="vertical"
-              className="mr-2 data-[orientation=vertical]:h-4"
-            />
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Shipyard</BreadcrumbPage>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Drydock Operations</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </header>
-          <div className="flex flex-1 flex-col gap-4 p-4">
-            {/* Operations Overview */}
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Operations</CardTitle>
-                  <Wrench className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">3</div>
-                  <p className="text-xs text-muted-foreground">
-                    Currently in drydock
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Scheduled</CardTitle>
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">5</div>
-                  <p className="text-xs text-muted-foreground">
-                    Upcoming operations
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Workforce</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">45</div>
-                  <p className="text-xs text-muted-foreground">
-                    Active workers
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Efficiency</CardTitle>
-                  <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">87%</div>
-                  <p className="text-xs text-muted-foreground">
-                    On-time completion
-                  </p>
-                </CardContent>
-              </Card>
+          <AppHeader 
+            breadcrumbs={[
+              { label: "Dashboard", href: "/pages/shipyard" },
+              { label: "Drydock Operations", isCurrentPage: true }
+            ]} 
+          />
+
+          {loading ? (
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <div className="flex flex-col items-center gap-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#134686]"></div>
+                <p className="text-sm text-gray-600">Loading drydock operations data...</p>
+              </div>
             </div>
+          ) : (
+            <div className="px-6 py-0 pb-6 pt-0 mt-0">
+              <div className="mb-5">
+                <h1 className="text-xl font-bold text-[#134686] mb-2">Drydock Operations</h1>
+                <p className="text-sm text-muted-foreground">
+                  Below are your booked vessels. Click a company to see more details about the drydock progress.
+                </p>
+              </div>
 
-            {/* Active Operations */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Wrench className="h-5 w-5" />
-                  Active Drydock Operations
-                </CardTitle>
-                <CardDescription>
-                  Monitor and manage ongoing drydock operations
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Vessel</TableHead>
-                      <TableHead>Operation Type</TableHead>
-                      <TableHead>Progress</TableHead>
-                      <TableHead>Team Size</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium">Ocean Star</div>
-                            <div className="text-sm text-muted-foreground">Hull Repair</div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Hull Repair</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-sm">
-                            <span>65%</span>
-                            <span>Day 8 of 12</span>
-                          </div>
-                          <Progress value={65} className="h-2" />
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          <span>12 workers</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-blue-100 text-blue-800">
-                          <Play className="mr-1 h-3 w-3" />
-                          In Progress
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Pause className="mr-1 h-3 w-3" />
-                            Pause
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            View Details
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium">Marine Explorer</div>
-                            <div className="text-sm text-muted-foreground">Engine Overhaul</div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Engine Overhaul</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-sm">
-                            <span>30%</span>
-                            <span>Day 5 of 20</span>
-                          </div>
-                          <Progress value={30} className="h-2" />
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          <span>18 workers</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-blue-100 text-blue-800">
-                          <Play className="mr-1 h-3 w-3" />
-                          In Progress
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Pause className="mr-1 h-3 w-3" />
-                            Pause
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            View Details
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium">Sea Breeze</div>
-                            <div className="text-sm text-muted-foreground">Propeller Replacement</div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Propeller Replacement</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-sm">
-                            <span>90%</span>
-                            <span>Day 6 of 7</span>
-                          </div>
-                          <Progress value={90} className="h-2" />
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          <span>8 workers</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-yellow-100 text-yellow-800">
-                          <AlertTriangle className="mr-1 h-3 w-3" />
-                          Final Inspection
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm">
-                            <CheckCircle className="mr-1 h-3 w-3" />
-                            Complete
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            View Details
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+              {/* Filters and Search */}
+              <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium">Progress:</label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="confirmed">Confirmed</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Input
+                    placeholder="Search by company or vessel"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
 
-            {/* Scheduled Operations */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Scheduled Operations</CardTitle>
-                <CardDescription>
-                  Upcoming drydock operations and maintenance schedules
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Vessel</TableHead>
-                      <TableHead>Operation Type</TableHead>
-                      <TableHead>Scheduled Start</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
+              {/* Vessel Cards */}
+              {filteredBookings.length === 0 ? (
+              <div className="text-center py-12">
+                <Ship className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No drydock operations found</h3>
+                <p className="text-gray-500">No confirmed bookings match your current filters.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {filteredBookings.map((booking) => (
+                  <Card key={booking.id} className="cursor-pointer shadow-sm rounded-md border border-gray-200" onClick={() => handleCardClick(booking)}>
+                    <CardContent className="px-4 py-1">
+                      {/* Company Info */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                            {booking.companyLogoUrl ? (
+                              <img 
+                                src={booking.companyLogoUrl} 
+                                alt={booking.companyName}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-xs font-medium text-gray-600">
+                                {booking.companyName.charAt(0)}
+                              </span>
+                            )}
+                          </div>
                           <div>
-                            <div className="font-medium">Blue Horizon</div>
-                            <div className="text-sm text-muted-foreground">Routine Maintenance</div>
+                            <h3 className="font-semibold text-gray-900 text-sm">{booking.companyName}</h3>
+                            <p className="text-xs text-gray-500">Shipowner</p>
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">Routine Maintenance</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>Dec 20, 2024</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>5 days</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-800">
-                          Ready to Start
+                        <Badge className={`${getStatusColor(booking.status)} text-white text-xs px-2 py-1 rounded-full`}>
+                          {getStatusText(booking.status)}
                         </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm">
-                            <Play className="mr-1 h-3 w-3" />
-                            Start
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            Reschedule
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Ship className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium">Pacific Star</div>
-                            <div className="text-sm text-muted-foreground">Hull Inspection</div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">Hull Inspection</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>Jan 5, 2025</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>3 days</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-gray-100 text-gray-800">
-                          Scheduled
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            Edit
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            Cancel
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                      </div>
 
-            {/* Resource Management */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Resource Allocation</CardTitle>
-                  <CardDescription>
-                    Current workforce and equipment allocation
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Welders</span>
-                      <div className="flex items-center gap-2">
-                        <Progress value={75} className="w-20 h-2" />
-                        <span className="text-sm">15/20</span>
+                      {/* Vessel Details */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="h-3 w-3 text-green-500" />
+                        <span className="text-xs font-medium text-gray-700">
+                          {booking.vesselName} (IMO: {booking.imoNumber})
+                        </span>
+                      </div>
+
+                      {/* Dates */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-gray-400" />
+                          <span className="text-xs text-gray-600">
+                            Start: {booking.startDate}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-gray-400" />
+                          <span className="text-xs text-gray-600">
+                            End: {booking.endDate}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Progress */}
+                      <div className="flex items-center gap-2 mt-3 mb-0 pb-0">
+                        <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+                          <div 
+                            className="bg-[#134686] h-2.5 rounded-full transition-all duration-300" 
+                            style={{ width: `${booking.progress}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-xs font-medium text-gray-700">{booking.progress}%</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+            </div>
+          )}
+
+          {/* Services Progress Dialog */}
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <DialogTitle className="text-xl font-bold text-gray-900">Services Progress</DialogTitle>
+                </div>
+                <p className="text-sm text-gray-600 mt-0">
+                  View and update the progress of each drydock service for this booking.
+                </p>
+              </DialogHeader>
+
+              {selectedBooking && (
+                <div className="space-y-6">
+                  {/* Booking Summary */}
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Vessel Name</label>
+                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
+                        {selectedBooking.vesselName}
                       </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Electricians</span>
-                      <div className="flex items-center gap-2">
-                        <Progress value={60} className="w-20 h-2" />
-                        <span className="text-sm">6/10</span>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">IMO Number</label>
+                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
+                        {selectedBooking.imoNumber}
                       </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Crane Operators</span>
-                      <div className="flex items-center gap-2">
-                        <Progress value={100} className="w-20 h-2" />
-                        <span className="text-sm">8/8</span>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Start Date</label>
+                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
+                        {selectedBooking.startDate}
                       </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Safety Inspectors</span>
-                      <div className="flex items-center gap-2">
-                        <Progress value={50} className="w-20 h-2" />
-                        <span className="text-sm">2/4</span>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">End Date</label>
+                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
+                        {selectedBooking.endDate}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Initial Unit Cost</label>
+                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
+                        ₱{selectedBooking.totalBid.toLocaleString()}.00
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+
+                  {/* Services Table */}
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    {loadingServices ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#134686]"></div>
+                        <span className="ml-2 text-sm text-gray-600">Loading services...</span>
+                      </div>
+                    ) : services.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Wrench className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                        <p className="text-sm text-gray-500">No services found for this booking.</p>
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-gray-50">
+                            <TableHead className="w-12">#</TableHead>
+                            <TableHead>Service Name</TableHead>
+                            <TableHead>Start Date</TableHead>
+                            <TableHead>End Date</TableHead>
+                            <TableHead>Progress</TableHead>
+                            <TableHead className="w-32">Edit</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {services.map((service, index) => (
+                            <TableRow key={service.id}>
+                              <TableCell className="font-medium">{index + 1}</TableCell>
+                              <TableCell className="font-medium">{service.name}</TableCell>
+                              <TableCell>{service.startDate}</TableCell>
+                              <TableCell>{service.endDate}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                    <div 
+                                      className="bg-gray-800 h-2 rounded-full transition-all duration-300" 
+                                      style={{ width: `${service.progress}%` }}
+                                    ></div>
+                                  </div>
+                                  <span className="text-sm font-medium text-gray-700">{service.progress}%</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {service.progress >= 100 ? (
+                                  <span className="text-xs font-medium text-green-600">Completed</span>
+                                ) : (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="text-xs"
+                                    style={{ backgroundColor: '#134686', color: 'white', borderColor: '#134686' }}
+                                    onClick={() => handleEditProgress(service)}
+                                  >
+                                    Edit Progress
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+
+                  {/* Issue Certificates Button - Show when all services are completed */}
+                  {services.length > 0 && areAllServicesCompleted(services) && (
+                    <div className="flex justify-end pt-4 cursor-pointer">
+                      <Button
+                        onClick={handleIssueCertificates}
+                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-2"
+                      >
+                        Issue Certificates
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+             
+            </DialogContent>
+          </Dialog>
+
+          {/* Progress Update Dialog */}
+          <Dialog open={isProgressDialogOpen} onOpenChange={setIsProgressDialogOpen}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-xl font-bold text-gray-900">
+                  Service Progress - {selectedService?.name}
+                </DialogTitle>
+                <p className="text-sm text-gray-600 mt-0">
+                  Current progress level and history for this service
+                </p>
+              </DialogHeader>
+
+              {selectedService && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Left Section - Progress Levels & History */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800">Progress Level</h3>
+                    <div className="space-y-3">
+                      {['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'].map((level) => (
+                        <div key={level} className="flex items-center space-x-3">
+                          <input
+                            type="radio"
+                            id={level}
+                            name="progressLevel"
+                            value={level}
+                            checked={progressLevel === level}
+                            onChange={(e) => handleLevelChange(e.target.value)}
+                            className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300"
+                          />
+                          <label htmlFor={level} className="text-sm font-medium text-gray-700 cursor-pointer">
+                            {level} ({getProgressPercentage(level)}%)
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+
+                  </div>
+
+                  {/* Right Section - Comments and Image */}
+                  <div className="space-y-4 md:col-span-2">
+                    <h3 className="text-lg font-semibold text-gray-800">Comments & Documentation</h3>
+                    
+                    {/* Show different content based on whether level has progress and if form is shown */}
+                    {existingProgress.length === 0 || showNewUpdateForm ? (
+                      /* Show input form when no progress exists OR when "Add new update" is clicked */
+                      <div className="space-y-4">
+                        {/* Comment Textarea */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Progress Comments
+                          </label>
+                          <textarea
+                            value={progressComment}
+                            onChange={(e) => setProgressComment(e.target.value)}
+                            placeholder="Add your progress comments here..."
+                            className="w-full p-3 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686] resize-none"
+                            rows={4}
+                          />
+                        </div>
+
+                        {/* Image Upload */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Progress Image (Optional)
+                          </label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageChange}
+                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686]"
+                          />
+                          {progressImage && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              Selected: {progressImage.name}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Update Button */}
+                        <div className="pt-4">
+                          <Button
+                            onClick={handleUpdateProgress}
+                            disabled={updatingProgress || !progressLevel}
+                            className="w-full"
+                            style={{ backgroundColor: '#134686', color: 'white' }}
+                          >
+                            {updatingProgress ? 'Updating...' : 'Update Progress'}
+                          </Button>
+                        </div>
+
+                        {/* Cancel Button - only show when adding new update to existing progress */}
+                        {existingProgress.length > 0 && showNewUpdateForm && (
+                          <div className="pt-2">
+                            <Button
+                              onClick={() => setShowNewUpdateForm(false)}
+                              variant="outline"
+                              className="w-full"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Show progress history when level has progress and form is not shown */
+                      <div className="space-y-4">
+                        <div className="flex justify-start">
+                          <Button
+                            onClick={() => setShowNewUpdateForm(true)}
+                            variant="outline"
+                            className="border-[#134686] text-[#134686] hover:bg-[#134686] hover:text-white"
+                          >
+                            Add New Update
+                          </Button>
+                        </div>
+                        
+                        {/* Progress History - Display below Add New Update button */}
+                        <div className="mt-6">
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">
+                            Progress History - {progressLevel}
+                          </h4>
+                          {existingProgress.length > 0 ? (
+                            <div className="space-y-3 max-h-60 overflow-y-auto">
+                              {existingProgress.map((progress) => (
+                                <div key={progress.id} className="border border-gray-200 rounded-lg p-3 bg-white">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                      <span className="font-medium text-gray-800 text-sm">{progress.progressLevel}</span>
+                                      <span className="text-xs text-gray-600 ml-2">({progress.progressPercent}%)</span>
+                                    </div>
+                                    <span className="text-xs text-gray-500">
+                                      {new Date(progress.updatedAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  
+                                  {progress.comment && (
+                                    <div className="mb-2">
+                                      <p className="text-xs text-gray-700 bg-gray-50 p-2 rounded">
+                                        {progress.comment}
+                                      </p>
+                                    </div>
+                                  )}
+                                  
+                                  {progress.imageUrl && (
+                                    <div>
+                                      <img 
+                                        src={progress.imageUrl} 
+                                        alt="Progress image" 
+                                        className="max-w-full max-h-20 object-cover rounded border"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500">No progress history for {progressLevel} yet.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               
-              <Card>
-                <CardHeader>
-                  <CardTitle>Equipment Status</CardTitle>
-                  <CardDescription>
-                    Current status of drydock equipment
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Drydock #1</span>
-                      <Badge className="bg-green-100 text-green-800">Operational</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Drydock #2</span>
-                      <Badge className="bg-green-100 text-green-800">Operational</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Crane A</span>
-                      <Badge className="bg-yellow-100 text-yellow-800">Maintenance</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Crane B</span>
-                      <Badge className="bg-green-100 text-green-800">Operational</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Welding Station 1</span>
-                      <Badge className="bg-green-100 text-green-800">Operational</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">Welding Station 2</span>
-                      <Badge className="bg-red-100 text-red-800">Out of Service</Badge>
-                    </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Issue Certificates Dialog */}
+          <Dialog open={isCertificateDialogOpen} onOpenChange={closeCertificateDialog}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-xl font-bold text-gray-900">
+                  Issue Certificates
+                </DialogTitle>
+                <p className="text-sm text-gray-600 mt-2">
+                  Select the certificates you want to issue for this drydock operation.
+                </p>
+              </DialogHeader>
+
+              <div className="space-y-4 py-4">
+                {/* Select All Checkbox */}
+                <div className="flex items-center space-x-3 pb-3 border-b">
+                  <input
+                    type="checkbox"
+                    id="selectAll"
+                    checked={selectAllCertificates}
+                    onChange={(e) => handleSelectAllCertificates(e.target.checked)}
+                    className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                  />
+                  <label htmlFor="selectAll" className="text-sm font-semibold text-gray-900 cursor-pointer">
+                    Select All
+                  </label>
+                </div>
+
+                {/* Individual Certificate Checkboxes */}
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      id="vesselPlans"
+                      checked={selectedCertificates.vesselPlans}
+                      onChange={(e) => handleCertificateChange('vesselPlans', e.target.checked)}
+                      className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                    />
+                    <label htmlFor="vesselPlans" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Vessel Plans
+                    </label>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      id="drydockReport"
+                      checked={selectedCertificates.drydockReport}
+                      onChange={(e) => handleCertificateChange('drydockReport', e.target.checked)}
+                      className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                    />
+                    <label htmlFor="drydockReport" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Drydock Report
+                    </label>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      id="drydockCertificate"
+                      checked={selectedCertificates.drydockCertificate}
+                      onChange={(e) => handleCertificateChange('drydockCertificate', e.target.checked)}
+                      className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                    />
+                    <label htmlFor="drydockCertificate" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Drydock Certificate
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => closeCertificateDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSubmitCertificates}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={(!selectedCertificates.vesselPlans && !selectedCertificates.drydockReport && !selectedCertificates.drydockCertificate) || issuingCertificates}
+                >
+                  {issuingCertificates ? 'Issuing...' : 'Issue Certificates'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </SidebarInset>
       </SidebarProvider>
+      <Toaster />
     </ProtectedRoute>
   )
 }
+

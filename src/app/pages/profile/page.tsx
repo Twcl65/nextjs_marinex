@@ -129,7 +129,7 @@ export default function ProfilePage() {
   // Fetch signed URL for S3 images
   useEffect(() => {
     if (user?.logoUrl) {
-      if (user.logoUrl.includes('s3.ap-southeast-2.amazonaws.com')) {
+      if (user.logoUrl.includes('s3.amazonaws.com')) {
         fetch(`/api/signed-url?url=${encodeURIComponent(user.logoUrl)}`)
           .then(res => res.json())
           .then(data => {

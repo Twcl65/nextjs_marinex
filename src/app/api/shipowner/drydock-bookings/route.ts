@@ -122,51 +122,92 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const userId = searchParams.get('userId')
+    const drydockRequestId = searchParams.get('drydockRequestId')
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
     }
 
     // Fetch bookings for the user using raw SQL with enhanced bid information
-    const bookings = await prisma.$queryRaw`
-      SELECT 
-        db.id,
-        db.drydockRequestId,
-        db.drydockBidId,
-        db.shipyardUserId,
-        db.status,
-        db.bookingDate,
-        db.notes,
-        dr.vesselName,
-        dr.imoNumber,
-        dr.status as requestStatus,
-        db_bid.shipyardName,
-        db_bid.totalBid,
-        db_bid.totalDays,
-        db_bid.parallelDays,
-        db_bid.sequentialDays,
-        db_bid.status as bidStatus,
-        db_bid.servicesOffered,
-        db_bid.serviceCalculations,
-        db_bid.bidCertificateUrl,
-        db_bid.submittedAt as bidDate,
-        su.fullName as shipyardContactName,
-        su.email as shipyardContactEmail,
-        su.contactNumber as shipyardContactNumber,
-        su.officeAddress as shipyardAddress,
-        su.contactPerson as shipyardContactPerson,
-        su.businessRegNumber as shipyardBusinessReg,
-        su.logoUrl as shipyardLogoUrl,
-        su.certificateBuilder,
-        su.certificateRepair,
-        su.certificateOther
-      FROM drydock_bookings db
-      LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
-      LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
-      LEFT JOIN users su ON db.shipyardUserId = su.id
-      WHERE db.userId = ${userId}
-      ORDER BY db.createdAt DESC
-    `
+    const bookings = drydockRequestId 
+      ? await prisma.$queryRaw`
+          SELECT 
+            db.id,
+            db.drydockRequestId,
+            db.drydockBidId,
+            db.shipyardUserId,
+            db.status,
+            db.bookingDate,
+            db.notes,
+            dr.vesselName,
+            dr.imoNumber,
+            dr.status as requestStatus,
+            db_bid.shipyardName,
+            db_bid.totalBid,
+            db_bid.totalDays,
+            db_bid.parallelDays,
+            db_bid.sequentialDays,
+            db_bid.status as bidStatus,
+            db_bid.servicesOffered,
+            db_bid.serviceCalculations,
+            db_bid.bidCertificateUrl,
+            db_bid.submittedAt as bidDate,
+            su.fullName as shipyardContactName,
+            su.email as shipyardContactEmail,
+            su.contactNumber as shipyardContactNumber,
+            su.officeAddress as shipyardAddress,
+            su.contactPerson as shipyardContactPerson,
+            su.businessRegNumber as shipyardBusinessReg,
+            su.logoUrl as shipyardLogoUrl,
+            su.certificateBuilder,
+            su.certificateRepair,
+            su.certificateOther
+          FROM drydock_bookings db
+          LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
+          LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
+          LEFT JOIN users su ON db.shipyardUserId = su.id
+          WHERE db.userId = ${userId} AND db.drydockRequestId = ${drydockRequestId}
+          ORDER BY db.createdAt DESC
+        `
+      : await prisma.$queryRaw`
+          SELECT 
+            db.id,
+            db.drydockRequestId,
+            db.drydockBidId,
+            db.shipyardUserId,
+            db.status,
+            db.bookingDate,
+            db.notes,
+            dr.vesselName,
+            dr.imoNumber,
+            dr.status as requestStatus,
+            db_bid.shipyardName,
+            db_bid.totalBid,
+            db_bid.totalDays,
+            db_bid.parallelDays,
+            db_bid.sequentialDays,
+            db_bid.status as bidStatus,
+            db_bid.servicesOffered,
+            db_bid.serviceCalculations,
+            db_bid.bidCertificateUrl,
+            db_bid.submittedAt as bidDate,
+            su.fullName as shipyardContactName,
+            su.email as shipyardContactEmail,
+            su.contactNumber as shipyardContactNumber,
+            su.officeAddress as shipyardAddress,
+            su.contactPerson as shipyardContactPerson,
+            su.businessRegNumber as shipyardBusinessReg,
+            su.logoUrl as shipyardLogoUrl,
+            su.certificateBuilder,
+            su.certificateRepair,
+            su.certificateOther
+          FROM drydock_bookings db
+          LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
+          LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
+          LEFT JOIN users su ON db.shipyardUserId = su.id
+          WHERE db.userId = ${userId}
+          ORDER BY db.createdAt DESC
+        `
 
     return NextResponse.json({
       success: true,

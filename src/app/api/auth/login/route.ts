@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
       let errorMessage = 'Account is not active. Please contact administrator.'
       
       if (user.status === 'SUSPENDED') {
-        errorMessage = 'Your account has been suspended. Please contact administrator for assistance.'
+        errorMessage = 'Your account has been suspended. Please contact Marine Industry Authority (MARINA) for assistance.'
       } else if (user.status === 'REJECTED') {
-        errorMessage = 'Your account application was rejected. Please contact administrator for more information.'
+        errorMessage = 'Your account application was rejected. Please contact Marine Industry Authority (MARINA) for more information.'
       } else if (user.status === 'INACTIVE') {
-        errorMessage = 'Your account is pending approval. Please wait for administrator approval.'
+        errorMessage = 'Your account is pending approval. Please wait for Marine Industry Authority (MARINA) for approval.'
       }
       
       return NextResponse.json({ 

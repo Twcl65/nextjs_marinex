@@ -2,16 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { ShipownerSidebar } from "@/components/shipowner-sidebar"
-import { Separator } from "@/components/ui/separator"
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -19,9 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { AppHeader } from "@/components/AppHeader"
 import { useAuth } from "@/contexts/AuthContext"
-import Image from "next/image"
+import { Ship } from "lucide-react"
 
 interface Vessel {
   id: string
@@ -73,46 +64,78 @@ const getMonthsUntilExpiry = (expirationDate: string | null) => {
 // VesselCard component
 function VesselCard({ vessel, onViewInfo }: { vessel: Vessel, onViewInfo: (vessel: Vessel) => void }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [isLoadingImage, setIsLoadingImage] = useState(false)
   const [imageError, setImageError] = useState(false)
 
   useEffect(() => {
-    console.log('VesselCard - vessel data:', {
-      id: vessel.id,
-      vesselName: vessel.vesselName,
-      vesselImageUrl: vessel.vesselImageUrl,
-      vesselCertificationExpiry: vessel.vesselCertificationExpiry
-    })
-    
+    // Reset states when vessel changes
+    setImageUrl(null)
+    setIsLoadingImage(false)
+    setImageError(false)
+
     if (vessel.vesselImageUrl) {
-      setImageError(false) // Reset error state when URL changes
-      console.log('VesselCard - Processing image URL:', vessel.vesselImageUrl)
+      setIsLoadingImage(true)
+      console.log('VesselCard - Loading image for', vessel.vesselName, ':', vessel.vesselImageUrl)
       
-      if (vessel.vesselImageUrl.includes('s3.ap-southeast-2.amazonaws.com')) {
-        console.log('VesselCard - Fetching signed URL for S3 image')
+      // Check if it's an S3 URL - proactively get signed URL
+      if (vessel.vesselImageUrl.includes('s3.amazonaws.com') || vessel.vesselImageUrl.includes('amazonaws.com')) {
         // Fetch signed URL for S3 images
         fetch(`/api/signed-url?url=${encodeURIComponent(vessel.vesselImageUrl)}`)
           .then(res => res.json())
           .then(data => {
-            console.log('VesselCard - Signed URL response:', data)
             if (data.signedUrl) {
+              console.log('VesselCard - Got signed URL for', vessel.vesselName)
               setImageUrl(data.signedUrl)
+            } else {
+              console.error('VesselCard - No signedUrl in response, trying direct URL')
+              setImageUrl(vessel.vesselImageUrl)
             }
           })
           .catch(err => {
-            console.error('Error fetching signed URL:', err)
-            setImageUrl(vessel.vesselImageUrl || null)
+            console.error('VesselCard - Error fetching signed URL, trying direct URL:', err)
+            setImageUrl(vessel.vesselImageUrl)
           })
       } else {
         // For non-S3 URLs, use directly
-        console.log('VesselCard - Using direct URL:', vessel.vesselImageUrl)
-        setImageUrl(vessel.vesselImageUrl || null)
+        setImageUrl(vessel.vesselImageUrl)
       }
     } else {
-      console.log('VesselCard - No image URL found')
-      setImageUrl(null)
-      setImageError(false)
+      console.log('VesselCard - No vesselImageUrl for vessel:', vessel.vesselName)
+      setIsLoadingImage(false)
     }
-  }, [vessel.id, vessel.vesselName, vessel.vesselCertificationExpiry, vessel.vesselImageUrl])
+  }, [vessel.id, vessel.vesselImageUrl, vessel.vesselName])
+  
+  // Handle successful image load
+  const handleImageLoad = () => {
+    console.log('VesselCard - Image loaded successfully for', vessel.vesselName)
+    setIsLoadingImage(false)
+    setImageError(false)
+  }
+  
+  // Handle image load error
+  const handleImageError = async (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    console.error('VesselCard - Image failed to load for', vessel.vesselName, ':', imageUrl)
+    setImageError(true)
+    setIsLoadingImage(false)
+    
+    // If direct URL failed and we haven't tried signed URL yet, try it
+    if (vessel.vesselImageUrl && imageUrl === vessel.vesselImageUrl && vessel.vesselImageUrl.includes('s3.amazonaws.com')) {
+      console.log('VesselCard - Attempting to fetch signed URL as fallback for:', vessel.vesselImageUrl)
+      try {
+        const response = await fetch(`/api/signed-url?url=${encodeURIComponent(vessel.vesselImageUrl)}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.signedUrl) {
+            setImageUrl(data.signedUrl)
+            setIsLoadingImage(true)
+            setImageError(false)
+          }
+        }
+      } catch (err) {
+        console.error('VesselCard - Error fetching signed URL:', err)
+      }
+    }
+  }
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '-'
@@ -132,20 +155,31 @@ function VesselCard({ vessel, onViewInfo }: { vessel: Vessel, onViewInfo: (vesse
       {/* Vessel Image */}
       <div className="w-full h-32 bg-gray-100 rounded-t-xl border-b border-gray-200 flex items-center justify-center overflow-hidden">
         {imageUrl && !imageError ? (
-          <Image
+          <img
             src={imageUrl}
             alt={vessel.vesselName}
-            width={260}
-            height={128}
             className="w-full h-full object-cover"
-            onError={() => setImageError(true)}
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            loading="lazy"
           />
         ) : (
-          <div className="text-gray-400 text-sm font-medium">
-            <div className="text-center">
-              
-              <div className="text-xs">{vessel.vesselName}</div>
-            </div>
+          <div className="flex flex-col items-center justify-center text-gray-400">
+            <Ship className="w-12 h-12 mb-2" strokeWidth={1.5} />
+            <div className="text-xs text-gray-500">Vessel Image</div>
+            {isLoadingImage ? (
+              <div className="text-xs text-gray-400 mt-1 text-center px-2">
+                Loading...
+              </div>
+            ) : !vessel.vesselImageUrl ? (
+              <div className="text-xs text-gray-400 mt-1 text-center px-2">
+                No image
+              </div>
+            ) : (
+              <div className="text-xs text-gray-400 mt-1 text-center px-2">
+                Failed to load
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -200,23 +234,23 @@ function VesselCard({ vessel, onViewInfo }: { vessel: Vessel, onViewInfo: (vesse
         {/* Specifications Grid */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-1 w-full text-xs text-gray-700 mb-3">
           <div>
-            <span className="font-normal text-gray-500">Type:</span> {vessel.shipType}
+            <span className="font-normal text-gray-500">Type:</span> {vessel.shipType || '-'}
           </div>
           <div>
-            <span className="font-normal text-gray-500">Flag:</span> {vessel.flag}
+            <span className="font-normal text-gray-500">Flag:</span> {vessel.flag || '-'}
           </div>
           <div>
-            <span className="font-normal text-gray-500">Length:</span> {vessel.lengthOverall} m
+            <span className="font-normal text-gray-500">Length:</span> {vessel.lengthOverall ? `${vessel.lengthOverall} m` : '-'}
           </div>
           <div>
-            <span className="font-normal text-gray-500">Tonnage:</span> {vessel.grossTonnage}
+            <span className="font-normal text-gray-500">Tonnage:</span> {vessel.grossTonnage || '-'}
           </div>
         </div>
 
         {/* View Information Button */}
         <div className="w-full mt-auto">
           <Button 
-            className="w-full bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+            className="w-full bg-[#134686] hover:bg-green-700 text-white cursor-pointer"
             onClick={() => onViewInfo(vessel)}
           >
             View Information
@@ -348,30 +382,31 @@ export default function VesselManagementPage() {
 
   const uploadFileToS3 = async (file: File, prefix: string): Promise<string | null> => {
     try {
-      console.log(`[Vessel] Uploading ${prefix} to S3...`)
-      const presignRes = await fetch('/api/uploads/presign', {
+      console.log(`[Vessel] Uploading ${prefix} to S3 via proxy...`, { fileName: file.name, fileType: file.type, fileSize: file.size })
+      
+      // Use proxy upload API to avoid CORS issues
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('prefix', prefix)
+      
+      const uploadRes = await fetch('/api/uploads/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileType: file.type, prefix }),
+        body: formData,
       })
       
-      if (presignRes.ok) {
-        const { url, publicUrl } = await presignRes.json()
-        const uploadRes = await fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type },
-          body: file,
-        })
-        
-        if (uploadRes.ok) {
-          console.log(`[Vessel] ${prefix} uploaded successfully:`, publicUrl)
-          return publicUrl
-        } else {
-          console.error(`[Vessel] ${prefix} upload failed:`, uploadRes.status)
-          return null
-        }
+      if (!uploadRes.ok) {
+        const errorData = await uploadRes.json().catch(() => ({ error: 'Unknown error' }))
+        console.error(`[Vessel] Failed to upload ${prefix}:`, uploadRes.status, errorData)
+        return null
+      }
+
+      const result = await uploadRes.json()
+      
+      if (result.success && result.url) {
+        console.log(`[Vessel] ${prefix} uploaded successfully:`, result.url)
+        return result.url
       } else {
-        console.error(`[Vessel] Failed to get presigned URL for ${prefix}`)
+        console.error(`[Vessel] ${prefix} upload failed:`, result)
         return null
       }
     } catch (error) {
@@ -548,13 +583,31 @@ export default function VesselManagementPage() {
         // Refresh vessels list
         fetchVessels()
       } else {
-        const error = await response.json()
-        console.error('Error creating vessel:', error)
+        // Try to parse error response, but handle cases where response might be empty
+        let errorMessage = 'Failed to create vessel'
+        try {
+          const contentType = response.headers.get('content-type')
+          if (contentType && contentType.includes('application/json')) {
+            const error = await response.json()
+            errorMessage = error.error || error.message || errorMessage
+            console.error('Error creating vessel:', error)
+          } else {
+            const errorText = await response.text()
+            if (errorText) {
+              errorMessage = errorText
+              console.error('Error creating vessel (text):', errorText)
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing response:', parseError)
+          // Use default error message if parsing fails
+        }
+        
         console.error('Response status:', response.status)
         toast({
           variant: "destructive",
           title: "Error",
-          description: error.error || 'Failed to create vessel'
+          description: errorMessage
         })
       }
     } catch (error) {
@@ -573,35 +626,21 @@ export default function VesselManagementPage() {
     <SidebarProvider>
       <ShipownerSidebar />
       <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-2 px-4 ml-1 mb-0 pb-0">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/pages/shipowner">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Vessel Management</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto">
-            <ProfileDropdown />
-          </div>
-        </header>
+        <AppHeader 
+          breadcrumbs={[
+            { label: "Dashboard", href: "/pages/shipowner" },
+            { label: "Vessel Management", isCurrentPage: true }
+          ]} 
+        />
         <div className="px-6 pt-0">
           <div className="mb-4">
             <div className="mb-4">
-              <h1 className="text-2xl font-bold text-[#134686] mb-0">Vessel Management</h1>
-              <p className="text-sm text-muted-foreground">Manage fleet vessels, details, and maintenance.</p>
+              <h1 className="text-lg  md:text-2xl font-bold text-[#134686] mb-0">Vessel Management</h1>
+              <p className="text-sm text-gray-500">Manage fleet vessels, details, and maintenance.</p>
             </div>
             <div className="flex items-center gap-4">
               <Button
-                className="bg-[#134686] hover:bg-[#0f3a6b] text-white"
+                className="bg-green-500 hover:bg-green-700 text-white cursor-pointer"
                 onClick={() => setIsDialogOpen(true)}
               >
                 Add Vessel
@@ -963,7 +1002,7 @@ export default function VesselManagementPage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-gray-700">Gross Tonnage</Label>
                     <div className="px-3 py-1 bg-white rounded-md border">
-                      {selectedVessel.grossTonnage}
+                      {selectedVessel.grossTonnage || <span className="text-gray-500">-</span>}
                     </div>
                   </div>
 
@@ -1039,7 +1078,7 @@ export default function VesselManagementPage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-gray-700">Flag</Label>
                     <div className="px-3 py-1 bg-white rounded-md border">
-                      {selectedVessel.flag}
+                      {selectedVessel.flag || <span className="text-gray-500">-</span>}
                     </div>
                   </div>
 
@@ -1047,7 +1086,7 @@ export default function VesselManagementPage() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-gray-700">Length Overall (m)</Label>
                     <div className="px-3 py-1 bg-white rounded-md border">
-                      {selectedVessel.lengthOverall}
+                      {selectedVessel.lengthOverall ? `${selectedVessel.lengthOverall} m` : <span className="text-gray-500">-</span>}
                     </div>
                   </div>
 

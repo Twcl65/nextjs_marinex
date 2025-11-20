@@ -32,7 +32,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Edit, Trash2, User, ChevronLeft, ChevronRight } from "lucide-react"
-import Image from "next/image"
 import React, { useEffect, useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -71,50 +70,81 @@ interface User {
 function UserLogo({ user }: { user: User }) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [imageError, setImageError] = useState(false)
 
   useEffect(() => {
     if (user.logoUrl && user.logoUrl !== 'null' && user.logoUrl.trim() !== '') {
       setLoading(true)
-      fetch(`/api/signed-url?url=${encodeURIComponent(user.logoUrl)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.signedUrl) {
-            setSignedUrl(data.signedUrl)
-          }
-        })
-        .catch(err => {
-          console.error('Error fetching signed URL:', err)
-        })
-        .finally(() => {
-          setLoading(false)
-        })
+      setImageError(false)
+      
+      // Check if it's an S3 URL (with or without region)
+      if (user.logoUrl.includes('s3') && user.logoUrl.includes('amazonaws.com')) {
+        // Fetch signed URL for S3 images
+        fetch(`/api/signed-url?url=${encodeURIComponent(user.logoUrl)}`)
+          .then(async res => {
+            const data = await res.json()
+            if (!res.ok) {
+              throw new Error(data.error || `HTTP error! status: ${res.status}`)
+            }
+            return data
+          })
+          .then(data => {
+            if (data.signedUrl && data.signedUrl.includes('?X-Amz-')) {
+              setSignedUrl(data.signedUrl)
+            } else {
+              // Not a valid signed URL, show initials
+              setSignedUrl(null)
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching signed URL:', err)
+            setSignedUrl(null) // Show initials instead
+          })
+          .finally(() => {
+            setLoading(false)
+          })
+      } else {
+        // For non-S3 URLs, use directly
+        setSignedUrl(user.logoUrl)
+        setLoading(false)
+      }
+    } else {
+      setSignedUrl(null)
+      setLoading(false)
     }
   }, [user.logoUrl])
 
-  const getRoleIcon = () => {
-    return <User className="h-4 w-4" />
+  const getInitials = () => {
+    const displayName = user.role === 'SHIPOWNER' ? user.fullName : user.shipyardName
+    if (!displayName) return 'U'
+    return displayName
+      .split(' ')
+      .map(word => word.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 2)
   }
 
-  const getDisplayName = (user: User) => {
+  const getDisplayName = () => {
     return user.role === 'SHIPOWNER' ? user.fullName : user.shipyardName
   }
 
   return (
     <div className="h-8 w-8 bg-gray-100 flex items-center justify-center border border-gray-200 relative overflow-hidden rounded-full">
-      {signedUrl && !loading ? (
-        <Image
+      {signedUrl && !loading && !imageError ? (
+        <img
           src={signedUrl}
-          alt={`${getDisplayName(user)} logo`}
-          fill
-          className="object-cover rounded-full"
-          onError={(e) => {
-            e.currentTarget.style.display = 'none';
+          alt={`${getDisplayName()} logo`}
+          className="h-full w-full object-cover rounded-full"
+          onError={() => {
+            setImageError(true)
           }}
         />
-      ) : null}
-      <div className="flex items-center justify-center">
-        {getRoleIcon()}
-      </div>
+      ) : (
+        <div className="h-full w-full flex items-center justify-center text-xs font-medium text-gray-600">
+          {getInitials()}
+        </div>
+      )}
     </div>
   )
 }
@@ -123,51 +153,82 @@ function UserLogo({ user }: { user: User }) {
 function DialogUserLogo({ user }: { user: User }) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [imageError, setImageError] = useState(false)
 
   useEffect(() => {
     if (user.logoUrl && user.logoUrl !== 'null' && user.logoUrl.trim() !== '') {
       setLoading(true)
-      fetch(`/api/signed-url?url=${encodeURIComponent(user.logoUrl)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.signedUrl) {
-            setSignedUrl(data.signedUrl)
-          }
-        })
-        .catch(err => {
-          console.error('Error fetching signed URL:', err)
-        })
-        .finally(() => {
-          setLoading(false)
-        })
+      setImageError(false)
+      
+      // Check if it's an S3 URL (with or without region)
+      if (user.logoUrl.includes('s3') && user.logoUrl.includes('amazonaws.com')) {
+        // Fetch signed URL for S3 images
+        fetch(`/api/signed-url?url=${encodeURIComponent(user.logoUrl)}`)
+          .then(async res => {
+            const data = await res.json()
+            if (!res.ok) {
+              throw new Error(data.error || `HTTP error! status: ${res.status}`)
+            }
+            return data
+          })
+          .then(data => {
+            if (data.signedUrl && data.signedUrl.includes('?X-Amz-')) {
+              setSignedUrl(data.signedUrl)
+            } else {
+              // Not a valid signed URL, show initials
+              setSignedUrl(null)
+            }
+          })
+          .catch(err => {
+            console.error('Error fetching signed URL:', err)
+            setSignedUrl(null) // Show initials instead
+          })
+          .finally(() => {
+            setLoading(false)
+          })
+      } else {
+        // For non-S3 URLs, use directly
+        setSignedUrl(user.logoUrl)
+        setLoading(false)
+      }
+    } else {
+      setSignedUrl(null)
+      setLoading(false)
     }
   }, [user.logoUrl])
 
-  const getRoleIcon = () => {
-    return <User className="h-8 w-8" />
+  const getInitials = () => {
+    const displayName = user.role === 'SHIPOWNER' ? user.fullName : user.shipyardName
+    if (!displayName) return 'U'
+    return displayName
+      .split(' ')
+      .map(word => word.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 2)
   }
 
-  const getDisplayName = (user: User) => {
+  const getDisplayName = () => {
     return user.role === 'SHIPOWNER' ? user.fullName : user.shipyardName
   }
 
   return (
-    <>
-      {signedUrl && !loading ? (
-        <Image
+    <div className="h-24 w-24 bg-gray-100 flex items-center justify-center border border-gray-200 relative overflow-hidden rounded-full">
+      {signedUrl && !loading && !imageError ? (
+        <img
           src={signedUrl}
-          alt={`${getDisplayName(user)} logo`}
-          fill
-          className="object-cover"
-          onError={(e) => {
-            e.currentTarget.style.display = 'none';
+          alt={`${getDisplayName()} logo`}
+          className="h-full w-full object-cover rounded-full"
+          onError={() => {
+            setImageError(true)
           }}
         />
-      ) : null}
-      <div className="flex items-center justify-center">
-        {getRoleIcon()}
-      </div>
-    </>
+      ) : (
+        <div className="h-full w-full flex items-center justify-center text-2xl font-medium text-gray-600">
+          {getInitials()}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -191,6 +252,8 @@ export default function ManageUsersPage() {
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false)
   const [isSuspending, setIsSuspending] = useState(false)
   const [suspensionReason, setSuspensionReason] = useState("")
+  const [unsuspendDialogOpen, setUnsuspendDialogOpen] = useState(false)
+  const [isUnsuspending, setIsUnsuspending] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -690,6 +753,132 @@ Marinex Authority Team
     setSuspensionReason("")
   }
 
+  const handleUnsuspendClick = () => {
+    setEditDialogOpen(false)
+    setUnsuspendDialogOpen(true)
+  }
+
+  const handleUnsuspendConfirm = async () => {
+    if (!selectedUser || isUnsuspending) return
+
+    setIsUnsuspending(true)
+
+    try {
+      // Update user status to ACTIVE in database
+      const response = await fetch('/api/users/update-status', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: selectedUser.id,
+          status: 'ACTIVE'
+        }),
+      })
+
+      if (response.ok) {
+        // Update the user in the local state
+        setUsers(users.map(user => 
+          user.id === selectedUser.id 
+            ? { ...user, status: 'ACTIVE' }
+            : user
+        ))
+
+        // Send unsuspension email notification
+        try {
+          const userName = selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName
+          const userType = selectedUser.role === 'SHIPOWNER' ? 'Shipowner' : 'Shipyard'
+          
+          const emailResponse = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              to: selectedUser.email,
+              subject: 'Marinex Account Reactivation Notice',
+              message: `
+Dear ${userName},
+
+We are pleased to inform you that your ${userType} account on Marinex has been reactivated.
+
+Your account suspension has been lifted and you now have full access to all Marinex services and features.
+
+Account Details:
+- Email: ${selectedUser.email}
+- Account Type: ${userType}
+- Status: Active
+
+You can now log in to your account and resume using Marinex services.
+
+If you have any questions or need assistance, please don't hesitate to contact our support team.
+
+Welcome back to Marinex!
+
+Best regards,
+Marinex Authority Team
+              `,
+              userType: userType,
+              userName: userName
+            }),
+          })
+
+          if (emailResponse.ok) {
+            console.log('Unsuspension email sent successfully')
+            toast({
+              variant: "success",
+              title: "Email Sent",
+              description: `Reactivation email sent to ${selectedUser.email}`,
+            })
+          } else {
+            const errorData = await emailResponse.json()
+            console.error('Failed to send unsuspension email:', errorData.error)
+            toast({
+              variant: "destructive",
+              title: "Email Failed",
+              description: `Could not send email to ${selectedUser.email}. User reactivated but email notification failed.`,
+            })
+          }
+        } catch (emailError) {
+          console.error('Error sending unsuspension email:', emailError)
+          toast({
+            variant: "destructive",
+            title: "Email Error",
+            description: `Could not send email to ${selectedUser.email}. User reactivated but email notification failed.`,
+          })
+          // Don't fail the unsuspension process if email fails
+        }
+
+        // Show success toast
+        toast({
+          variant: "success",
+          title: "User Reactivated Successfully",
+          description: `${selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName} has been reactivated.`,
+        })
+
+        setUnsuspendDialogOpen(false)
+        setSelectedUser(null)
+      } else {
+        throw new Error('Failed to update user status')
+      }
+    } catch (error) {
+      console.error('Error reactivating user:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to reactivate user. Please try again.",
+      })
+    } finally {
+      setIsUnsuspending(false)
+    }
+  }
+
+  const handleUnsuspendCancel = () => {
+    setUnsuspendDialogOpen(false)
+    setEditDialogOpen(true)
+    setIsUnsuspending(false)
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE':
@@ -735,8 +924,8 @@ Marinex Authority Team
         </header>
         <div className="px-6 py-0 pb-6">
           <div className="mb-6">
-            <h1 className="text-2xl md:text-2xl font-bold text-[#134686]">User Management</h1>
-            <p className="text-md text-muted-foreground mt-1">Create and manage user accounts with their profile information and roles.</p>
+            <h1 className="text-lg md:text-xl font-bold text-[#134686]">User Management</h1>
+            <p className="text-sm text-gray-500 mt-1">Create and manage user accounts with their profile information and roles.</p>
           </div>
 
           {/* Search and Filter Section */}
@@ -806,7 +995,7 @@ Marinex Authority Team
                   ) : currentUsers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                        <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                       
                         <p className="text-gray-600">No users found</p>
                         <p className="text-sm text-gray-500 mt-1">No registered users match your search criteria</p>
                       </TableCell>
@@ -1265,6 +1454,16 @@ Marinex Authority Team
               </div>
             </DialogFooter>
           )}
+
+          {selectedUser?.status === 'SUSPENDED' && (
+            <DialogFooter className="flex justify-center">
+              <div className="flex gap-3">
+                <Button className="bg-green-600 hover:bg-green-700 text-white border-green-600" onClick={handleUnsuspendClick}>
+                  Unsuspend Account
+                </Button>
+              </div>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1472,6 +1671,61 @@ Marinex Authority Team
                 disabled={isSuspending || !suspensionReason.trim()}
               >
                 {isSuspending ? "Suspending..." : "Suspend & Send Email"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unsuspend Confirmation Dialog */}
+      <Dialog open={unsuspendDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setUnsuspendDialogOpen(false)
+          setEditDialogOpen(true)
+          setIsUnsuspending(false)
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#134686]">Reactivate User Account</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to reactivate this user&apos;s account? The user will regain full access to Marinex services.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm font-medium text-black mb-2 block">
+                  User Information
+                </Label>
+                <div className="bg-gray-50 p-3 rounded border">
+                  <p className="text-sm"><strong>Name:</strong> {selectedUser?.role === 'SHIPOWNER' ? selectedUser?.fullName : selectedUser?.shipyardName}</p>
+                  <p className="text-sm"><strong>Email:</strong> {selectedUser?.email}</p>
+                  <p className="text-sm"><strong>Role:</strong> {selectedUser?.role}</p>
+                  <p className="text-sm"><strong>Current Status:</strong> Suspended</p>
+                </div>
+              </div>
+              
+              <div className="bg-green-50 p-3 rounded border border-green-200">
+                <p className="text-sm text-green-800">
+                  <strong>Note:</strong> This action will reactivate the user&apos;s account and send them a reactivation email notification.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex justify-center">
+            <div className="flex gap-3">
+              <Button className="bg-gray-500 hover:bg-gray-600 text-white border-gray-500" onClick={handleUnsuspendCancel}>
+                Cancel
+              </Button>
+              <Button 
+                className="bg-green-600 hover:bg-green-700 text-white border-green-600 disabled:opacity-50 disabled:cursor-not-allowed" 
+                onClick={handleUnsuspendConfirm}
+                disabled={isUnsuspending}
+              >
+                {isUnsuspending ? "Reactivating..." : "Reactivate & Send Email"}
               </Button>
             </div>
           </DialogFooter>

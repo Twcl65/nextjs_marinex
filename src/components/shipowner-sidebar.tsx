@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { 
   Ship, 
   Home,
@@ -71,9 +72,13 @@ export function ShipownerSidebar({ ...props }: React.ComponentProps<typeof Sideb
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="h-14" asChild>
               <a href="/pages/shipowner">
-                <div className="bg-[#134686] text-white flex aspect-square size-8 items-center justify-center rounded-full">
-                  <span className="text-xs font-bold">M</span>
-                </div>
+                <Image 
+                  src="/assets/marinex_logo.png" 
+                  alt="Marinex Logo" 
+                  width={32} 
+                  height={32}
+                  className="rounded-full"
+                />
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-medium">
                     {user?.fullName || user?.shipyardName || user?.email || "Marine Authority"}

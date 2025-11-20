@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -41,9 +42,11 @@ export default function RegisterPage() {
     contactPerson: '',
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [apiError, setApiError] = useState<string>('');
+  const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const router = useRouter();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,6 +129,7 @@ export default function RegisterPage() {
     }
 
     setIsLoading(true);
+    setUploadProgress(25);
     setApiError('');
     setSuccessMessage('');
 
@@ -139,28 +143,22 @@ export default function RegisterPage() {
       // Upload logo if provided
       if (formData.logoFile) {
         console.log('[Register] Uploading logo to S3...');
-        const presignRes = await fetch('/api/uploads/presign', {
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', formData.logoFile);
+        uploadFormData.append('prefix', 'logos');
+        
+        const uploadRes = await fetch('/api/uploads/upload', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileType: formData.logoFile.type, prefix: 'logos' }),
+          body: uploadFormData,
         });
         
-        if (presignRes.ok) {
-          const { url, publicUrl } = await presignRes.json();
-          const uploadRes = await fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': formData.logoFile.type },
-            body: formData.logoFile,
-          });
-          
-          if (uploadRes.ok) {
-            logoUrl = publicUrl;
-            console.log('[Register] Logo uploaded successfully:', publicUrl);
-          } else {
-            console.error('[Register] Logo upload failed:', uploadRes.status);
-          }
+        if (uploadRes.ok) {
+          const { url } = await uploadRes.json();
+          logoUrl = url;
+          console.log('[Register] Logo uploaded successfully:', url);
         } else {
-          console.error('[Register] Failed to get presigned URL for logo');
+          const errorData = await uploadRes.json().catch(() => ({}));
+          console.error('[Register] Logo upload failed:', uploadRes.status, errorData);
         }
       }
 
@@ -168,73 +166,67 @@ export default function RegisterPage() {
       if (formData.role === 'shipyard') {
         if (formData.certificateShipBuilder) {
           console.log('[Register] Uploading ship builder certificate...');
-          const presignRes = await fetch('/api/uploads/presign', {
+          const uploadFormData = new FormData();
+          uploadFormData.append('file', formData.certificateShipBuilder);
+          uploadFormData.append('prefix', 'certificates');
+          
+          const uploadRes = await fetch('/api/uploads/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileType: formData.certificateShipBuilder.type, prefix: 'certificates' }),
+            body: uploadFormData,
           });
           
-          if (presignRes.ok) {
-            const { url, publicUrl } = await presignRes.json();
-            const uploadRes = await fetch(url, {
-              method: 'PUT',
-              headers: { 'Content-Type': formData.certificateShipBuilder.type },
-              body: formData.certificateShipBuilder,
-            });
-            
-            if (uploadRes.ok) {
-              certificateBuilder = publicUrl;
-              console.log('[Register] Ship builder certificate uploaded:', publicUrl);
-            }
+          if (uploadRes.ok) {
+            const { url } = await uploadRes.json();
+            certificateBuilder = url;
+            console.log('[Register] Ship builder certificate uploaded:', url);
+          } else {
+            console.error('[Register] Ship builder certificate upload failed:', uploadRes.status);
           }
         }
 
         if (formData.certificateShipRepair) {
           console.log('[Register] Uploading ship repair certificate...');
-          const presignRes = await fetch('/api/uploads/presign', {
+          const uploadFormData = new FormData();
+          uploadFormData.append('file', formData.certificateShipRepair);
+          uploadFormData.append('prefix', 'certificates');
+          
+          const uploadRes = await fetch('/api/uploads/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileType: formData.certificateShipRepair.type, prefix: 'certificates' }),
+            body: uploadFormData,
           });
           
-          if (presignRes.ok) {
-            const { url, publicUrl } = await presignRes.json();
-            const uploadRes = await fetch(url, {
-              method: 'PUT',
-              headers: { 'Content-Type': formData.certificateShipRepair.type },
-              body: formData.certificateShipRepair,
-            });
-            
-            if (uploadRes.ok) {
-              certificateRepair = publicUrl;
-              console.log('[Register] Ship repair certificate uploaded:', publicUrl);
-            }
+          if (uploadRes.ok) {
+            const { url } = await uploadRes.json();
+            certificateRepair = url;
+            console.log('[Register] Ship repair certificate uploaded:', url);
+          } else {
+            console.error('[Register] Ship repair certificate upload failed:', uploadRes.status);
           }
         }
 
         if (formData.certificateOther) {
           console.log('[Register] Uploading other certificate...');
-          const presignRes = await fetch('/api/uploads/presign', {
+          const uploadFormData = new FormData();
+          uploadFormData.append('file', formData.certificateOther);
+          uploadFormData.append('prefix', 'certificates');
+          
+          const uploadRes = await fetch('/api/uploads/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileType: formData.certificateOther.type, prefix: 'certificates' }),
+            body: uploadFormData,
           });
           
-          if (presignRes.ok) {
-            const { url, publicUrl } = await presignRes.json();
-            const uploadRes = await fetch(url, {
-              method: 'PUT',
-              headers: { 'Content-Type': formData.certificateOther.type },
-              body: formData.certificateOther,
-            });
-            
-            if (uploadRes.ok) {
-              certificateOther = publicUrl;
-              console.log('[Register] Other certificate uploaded:', publicUrl);
-            }
+          if (uploadRes.ok) {
+            const { url } = await uploadRes.json();
+            certificateOther = url;
+            console.log('[Register] Other certificate uploaded:', url);
+          } else {
+            console.error('[Register] Other certificate upload failed:', uploadRes.status);
           }
         }
       }
+
+      // Update progress after file uploads
+      setUploadProgress(50);
 
       // Prepare registration payload
       const payload: Record<string, unknown> = {
@@ -279,6 +271,9 @@ export default function RegisterPage() {
         certificateOther
       });
 
+      // Update progress before API call
+      setUploadProgress(75);
+
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -296,28 +291,95 @@ export default function RegisterPage() {
       const data = await res.json().catch(() => ({}));
       console.log('[Register] success response JSON:', data);
 
+      // Update progress to 100%
+      setUploadProgress(100);
 
-      setSuccessMessage('Registration submitted. Your account is INACTIVE and awaiting approval.');
+      // Small delay to show 100% before closing loading dialog
+      await new Promise(resolve => setTimeout(resolve, 300));
+
       // Optionally clear sensitive fields
       setFormData({
         ...formData,
         password: '',
         confirmPassword: '',
       });
-      // Redirect to login after short delay
-    setTimeout(() => {
-        router.push('/auth/login?registered=1');
-      }, 1500);
+
+      // Show approval dialog
+      setIsLoading(false);
+      setShowApprovalDialog(true);
     } catch (err: unknown) {
       setApiError((err instanceof Error ? err.message : 'Something went wrong'));
+      setUploadProgress(0);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-cover bg-center bg-no-repeat py-10 px-4 sm:px-6 lg:px-8" style={{ backgroundImage: "url('/assets/background.jpg')" }}>
-      <Card className="w-full max-w-5xl shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+    <div>
+      {/* Loading Dialog */}
+      <Dialog open={isLoading} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-[350px] [&>button]:hidden">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-[#134686] text-center">
+              Creating Your Account
+            </DialogTitle>
+            <DialogDescription className="text-center pt-1 text-sm">
+              Please wait while we process your registration...
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center justify-center py-6">
+            <div className="w-full max-w-xs mb-2">
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-[#134686] rounded-full transition-all duration-500 ease-out" 
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 text-center">
+              {uploadProgress < 50 ? 'Uploading files...' : uploadProgress < 75 ? 'Processing data...' : uploadProgress < 100 ? 'Creating account...' : 'Almost done...'}
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Approval Dialog */}
+      <Dialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#134686]">
+              Registration Submitted Successfully
+            </DialogTitle>
+            <DialogDescription className="text-base text-gray-700 pt-2">
+              Thank you for registering with Marinex. Your account registration has been successfully submitted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Please wait for the Marine Industry Authority (MARINA) to review and approve your registration. 
+              You will be notified via email once your account has been approved and activated.
+            </p>
+            <p className="text-sm text-gray-600 leading-relaxed mt-3">
+              In the meantime, you can check the status of your registration by logging in with your credentials.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setShowApprovalDialog(false);
+                router.push('/auth/login');
+              }}
+              className="w-full sm:w-auto bg-[#134686] hover:bg-[#0f3a6e] text-white"
+            >
+              Go to Login
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="min-h-screen flex items-center justify-center bg-cover bg-center bg-no-repeat py-10 px-4 sm:px-6 lg:px-8" style={{ backgroundImage: "url('/assets/background.jpg')" }}>
+        <Card className="w-full max-w-5xl shadow-xl border-0 bg-white/90 backdrop-blur-sm">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-xl sm:text-2xl font-bold text-[#134686]">
             Create your account
@@ -674,6 +736,7 @@ export default function RegisterPage() {
           </div>
         </CardFooter>
       </Card>
+    </div>
     </div>
   );
 }

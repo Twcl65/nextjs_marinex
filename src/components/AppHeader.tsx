@@ -12,6 +12,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { ProfileDropdown } from '@/components/ProfileDropdown'
+import { NotificationDropdown } from '@/components/NotificationDropdown'
 
 interface BreadcrumbItem {
   label: string
@@ -48,7 +49,8 @@ export function AppHeader({ breadcrumbs }: AppHeaderProps) {
         </Breadcrumb>
       </div>
       
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-2">
+        <NotificationDropdown />
         <ProfileDropdown />
       </div>
     </header>

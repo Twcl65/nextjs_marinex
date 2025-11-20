@@ -1,405 +1,255 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import { ShipyardSidebar } from "@/components/shipyard-sidebar"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
-import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { AppHeader } from "@/components/AppHeader"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { FileText, Upload, Download, Eye, Edit, Search, Plus, File, Folder } from "lucide-react"
+import { useAuth } from "@/contexts/AuthContext"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
+import { useToast } from "@/hooks/use-toast"
+import { Toaster } from "@/components/ui/toaster"
+import { FileText, Download, ExternalLink, Ship, Calendar } from "lucide-react"
+
+interface IssuedCertificate {
+  id: string
+  drydockBookingId: string
+  vesselId: string
+  certificateName: string
+  certificateType: string
+  certificateUrl: string | null
+  issuedDate: string
+  createdAt: string
+  updatedAt: string
+  vesselName: string
+  imoNumber: string
+  companyName: string
+}
 
 export default function ManageDocumentsPage() {
+  const { user, token } = useAuth()
+  const { toast } = useToast()
+  const [certificates, setCertificates] = useState<IssuedCertificate[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (user?.id && token) {
+      fetchCertificates()
+    }
+  }, [user?.id, token])
+
+  const fetchCertificates = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/shipyard/issued-certificates', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setCertificates(data.data || [])
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: errorData.error || "Failed to fetch certificates",
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching certificates:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An error occurred while fetching certificates",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownloadCertificate = async (certificate: IssuedCertificate) => {
+    if (!certificate.certificateUrl) {
+      toast({
+        title: "Certificate Not Available",
+        description: "This certificate PDF is still being processed. Please try again later.",
+      })
+      return
+    }
+
+    try {
+      let documentUrl = certificate.certificateUrl
+      
+      if (documentUrl.includes('s3.amazonaws.com') || documentUrl.includes('amazonaws.com')) {
+        const response = await fetch(`/api/signed-url?url=${encodeURIComponent(documentUrl)}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.signedUrl) {
+            documentUrl = data.signedUrl
+          }
+        }
+      }
+
+      window.open(documentUrl, '_blank')
+    } catch (error) {
+      console.error('Error downloading certificate:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to download certificate",
+      })
+    }
+  }
+
+  // Helper function to determine status (new if issued within last 7 days, otherwise old)
+  const getCertificateStatus = (issuedDate: string): string => {
+    const now = new Date()
+    const issued = new Date(issuedDate)
+    const daysDiff = Math.floor((now.getTime() - issued.getTime()) / (1000 * 60 * 60 * 24))
+    return daysDiff <= 7 ? 'new' : 'old'
+  }
+
   return (
     <ProtectedRoute allowedRoles={['SHIPYARD']}>
       <SidebarProvider>
         <ShipyardSidebar />
         <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-            <SidebarTrigger className="-ml-1" />
-            <Separator
-              orientation="vertical"
-              className="mr-2 data-[orientation=vertical]:h-4"
-            />
-            <div className="flex-1">
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>Shipyard</BreadcrumbPage>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>Manage Documents</BreadcrumbPage>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            </div>
-            <div className="ml-auto">
-              <ProfileDropdown />
-            </div>
-          </header>
-          <div className="flex flex-1 flex-col gap-4 p-4">
-            {/* Document Management Header */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Document Management
-                    </CardTitle>
-                    <CardDescription>
-                      Manage project documents, certificates, and compliance files
-                    </CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      New Folder
-                    </Button>
-                    <Button>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Upload Files
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input placeholder="Search documents..." className="pl-10" />
-                    </div>
-                  </div>
-                  <Select>
-                    <SelectTrigger className="w-full sm:w-48">
-                      <SelectValue placeholder="Filter by type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="project">Project Documents</SelectItem>
-                      <SelectItem value="certificate">Certificates</SelectItem>
-                      <SelectItem value="compliance">Compliance</SelectItem>
-                      <SelectItem value="safety">Safety Documents</SelectItem>
-                      <SelectItem value="technical">Technical Specs</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select>
-                    <SelectTrigger className="w-full sm:w-48">
-                      <SelectValue placeholder="Filter by project" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Projects</SelectItem>
-                      <SelectItem value="ocean-star">Ocean Star</SelectItem>
-                      <SelectItem value="marine-explorer">Marine Explorer</SelectItem>
-                      <SelectItem value="sea-breeze">Sea Breeze</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
+          <AppHeader 
+            breadcrumbs={[
+              { label: "Dashboard", href: "/pages/shipyard" },
+              { label: "Manage Documents", isCurrentPage: true }
+            ]} 
+          />
 
-            {/* Document Categories */}
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Project Documents</CardTitle>
-                  <File className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">45</div>
-                  <p className="text-xs text-muted-foreground">
-                    Active project files
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Certificates</CardTitle>
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">23</div>
-                  <p className="text-xs text-muted-foreground">
-                    Valid certificates
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Compliance</CardTitle>
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">18</div>
-                  <p className="text-xs text-muted-foreground">
-                    Compliance documents
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Safety Docs</CardTitle>
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">12</div>
-                  <p className="text-xs text-muted-foreground">
-                    Safety protocols
-                  </p>
-                </CardContent>
-              </Card>
+          <div className="px-6 py-0 pb-6 pt-0 mt-0">
+            <div className="mb-6">
+              <h1 className="text-lg md:text-xl font-bold text-[#134686]">Document Management</h1>
+              <p className="text-sm text-muted-foreground mt-1">View and manage certificates you have issued to vessel owners.</p>
             </div>
 
-            {/* Document List */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Documents</CardTitle>
-                <CardDescription>
-                  Browse and manage your document library
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead>Size</TableHead>
-                      <TableHead>Modified</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Folder className="h-4 w-4 text-blue-500" />
-                          <span className="font-medium">Ocean Star Project</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Folder</Badge>
-                      </TableCell>
-                      <TableCell>Ocean Star</TableCell>
-                      <TableCell>-</TableCell>
-                      <TableCell>Dec 10, 2024</TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-800">Active</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Eye className="mr-1 h-3 w-3" />
-                            Open
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="mr-1 h-3 w-3" />
-                            Rename
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-red-500" />
-                          <span>Hull_Repair_Specifications.pdf</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Technical Spec</Badge>
-                      </TableCell>
-                      <TableCell>Ocean Star</TableCell>
-                      <TableCell>2.4 MB</TableCell>
-                      <TableCell>Dec 8, 2024</TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-800">Approved</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Eye className="mr-1 h-3 w-3" />
-                            View
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Download className="mr-1 h-3 w-3" />
-                            Download
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="mr-1 h-3 w-3" />
-                            Edit
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-green-500" />
-                          <span>Safety_Certificate_2024.pdf</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Certificate</Badge>
-                      </TableCell>
-                      <TableCell>General</TableCell>
-                      <TableCell>1.8 MB</TableCell>
-                      <TableCell>Nov 15, 2024</TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-800">Valid</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Eye className="mr-1 h-3 w-3" />
-                            View
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Download className="mr-1 h-3 w-3" />
-                            Download
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="mr-1 h-3 w-3" />
-                            Edit
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-blue-500" />
-                          <span>Marine_Explorer_Progress_Report.docx</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Progress Report</Badge>
-                      </TableCell>
-                      <TableCell>Marine Explorer</TableCell>
-                      <TableCell>856 KB</TableCell>
-                      <TableCell>Dec 12, 2024</TableCell>
-                      <TableCell>
-                        <Badge className="bg-yellow-100 text-yellow-800">Draft</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Eye className="mr-1 h-3 w-3" />
-                            View
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Download className="mr-1 h-3 w-3" />
-                            Download
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="mr-1 h-3 w-3" />
-                            Edit
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    
-                    <TableRow>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-orange-500" />
-                          <span>Compliance_Checklist_2024.xlsx</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Compliance</Badge>
-                      </TableCell>
-                      <TableCell>General</TableCell>
-                      <TableCell>1.2 MB</TableCell>
-                      <TableCell>Dec 5, 2024</TableCell>
-                      <TableCell>
-                        <Badge className="bg-red-100 text-red-800">Expired</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Eye className="mr-1 h-3 w-3" />
-                            View
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Download className="mr-1 h-3 w-3" />
-                            Download
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="mr-1 h-3 w-3" />
-                            Renew
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            {/* Recent Activity */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>
-                  Latest document activities and updates
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-2 h-2 bg-green-600 rounded-full"></div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Hull_Repair_Specifications.pdf uploaded</p>
-                      <p className="text-xs text-muted-foreground">2 hours ago by John Smith</p>
-                    </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#134686]"></div>
+                <span className="ml-2 text-sm text-gray-600">Loading certificates...</span>
+              </div>
+            ) : certificates.length === 0 ? (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="text-center">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">No Certificates Issued</h3>
+                    <p className="text-sm text-gray-600">
+                      You haven&apos;t issued any certificates yet. Certificates will appear here after you issue them from the Drydock Operations page.
+                    </p>
                   </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Marine_Explorer_Progress_Report.docx updated</p>
-                      <p className="text-xs text-muted-foreground">4 hours ago by Sarah Johnson</p>
-                    </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Issued Certificates</CardTitle>
+                  <CardDescription>
+                    All certificates you have issued to vessel owners. Total: {certificates.length}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Certificate Name</TableHead>
+                          <TableHead>Vessel</TableHead>
+                          <TableHead>IMO Number</TableHead>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Issue Date</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {certificates.map((certificate) => {
+                          const status = getCertificateStatus(certificate.issuedDate)
+                          return (
+                            <TableRow key={certificate.id}>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-4 w-4 text-gray-500" />
+                                  {certificate.certificateName}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Ship className="h-4 w-4 text-gray-400" />
+                                  {certificate.vesselName}
+                                </div>
+                              </TableCell>
+                              <TableCell>{certificate.imoNumber}</TableCell>
+                              <TableCell>{certificate.companyName}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Calendar className="h-4 w-4 text-gray-400" />
+                                  {new Date(certificate.issuedDate).toLocaleDateString()}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge 
+                                  className={
+                                    status === 'new' 
+                                      ? 'bg-green-100 text-green-800 border-green-200' 
+                                      : 'bg-gray-100 text-gray-800 border-gray-200'
+                                  }
+                                >
+                                  {status === 'new' ? 'New' : 'Old'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {certificate.certificateUrl ? (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDownloadCertificate(certificate)}
+                                        className="gap-2"
+                                      >
+                                        <Download className="h-4 w-4" />
+                                        Download
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDownloadCertificate(certificate)}
+                                        className="gap-2"
+                                      >
+                                        <ExternalLink className="h-4 w-4" />
+                                        View
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <Badge variant="outline" className="text-sm">
+                                      Processing...
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="w-2 h-2 bg-yellow-600 rounded-full"></div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Safety_Certificate_2024.pdf approved</p>
-                      <p className="text-xs text-muted-foreground">1 day ago by Mike Wilson</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="w-2 h-2 bg-red-600 rounded-full"></div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Compliance_Checklist_2024.xlsx expired</p>
-                      <p className="text-xs text-muted-foreground">3 days ago - System Alert</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </SidebarInset>
+        <Toaster />
       </SidebarProvider>
     </ProtectedRoute>
   )

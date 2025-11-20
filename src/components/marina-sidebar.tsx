@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { 
-  Home,
-  Shield,
-  Hammer,
-  Eye,
-  Clock,
+  LayoutDashboard,
+  Stamp,
+  Gavel,
+  BadgeCheck,
+  RefreshCcw,
   Users
 } from "lucide-react"
 import { usePathname } from "next/navigation"
@@ -30,27 +31,27 @@ const marinaNavData = {
     {
       title: "Dashboard",
       url: "/pages/marina",
-      icon: Home,
+      icon: LayoutDashboard,
     },
     {
       title: "Authority Approvals",
       url: "/pages/marina/authority-approvals",
-      icon: Shield,
+      icon: Stamp,
     },
     {
       title: "Shipyard Bidding",
       url: "/pages/marina/shipyard-bidding",
-      icon: Hammer,
+      icon: Gavel,
     },
     {
       title: "Monitor Certifications",
       url: "/pages/marina/monitor-certifications",
-      icon: Eye,
+      icon: BadgeCheck,
     },
     {
       title: "Vessel Recertifications",
       url: "/pages/marina/vessel-recertifications",
-      icon: Clock,
+      icon: RefreshCcw,
     },
     {
       title: "Manage Users",
@@ -71,9 +72,13 @@ export function MarinaSidebar({ ...props }: React.ComponentProps<typeof Sidebar>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="h-14" asChild>
               <a href="/pages/marina">
-                <div className="bg-[#134686] text-white flex aspect-square size-8 items-center justify-center rounded-full">
-                  <span className="text-xs font-bold">M</span>
-                </div>
+                <Image 
+                  src="/assets/marinex_logo.png" 
+                  alt="Marinex Logo" 
+                  width={32} 
+                  height={32}
+                  className="rounded-full"
+                />
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-medium">
                     {user?.fullName || user?.shipyardName || user?.email || "Marine Authority"}

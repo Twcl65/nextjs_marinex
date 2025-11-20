@@ -32,6 +32,9 @@ export async function GET(req: NextRequest) {
         dr.status as requestStatus,
         dr.companyName,
         dr.companyLogoUrl,
+        dr.vesselId,
+        sv.lengthOverall,
+        sv.grossTonnage,
         db_bid.shipyardName,
         db_bid.totalBid,
         db_bid.totalDays,
@@ -49,11 +52,14 @@ export async function GET(req: NextRequest) {
         u.logoUrl as shipownerLogoUrl
       FROM drydock_bookings db
       LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
+      LEFT JOIN ship_vessels sv ON dr.vesselId = sv.id
       LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
       LEFT JOIN users u ON db.userId = u.id
       WHERE db.shipyardUserId = ${shipyardUserId}
       ORDER BY db.createdAt DESC
     `
+
+    console.log('Raw bookings data:', bookings)
 
     return NextResponse.json({
       success: true,
@@ -77,6 +83,9 @@ export async function GET(req: NextRequest) {
         requestStatus: string;
         companyName: string;
         companyLogoUrl: string | null;
+        vesselId: string;
+        lengthOverall: number | null;
+        grossTonnage: number | null;
         shipyardName: string;
         totalBid: number;
         totalDays: number;
@@ -112,6 +121,9 @@ export async function GET(req: NextRequest) {
         requestStatus: booking.requestStatus,
         companyName: booking.companyName,
         companyLogoUrl: booking.companyLogoUrl,
+        vesselId: booking.vesselId,
+        lengthOverall: booking.lengthOverall,
+        grossTonnage: booking.grossTonnage,
         shipyardName: booking.shipyardName,
         totalBid: booking.totalBid,
         totalDays: booking.totalDays,
@@ -151,16 +163,31 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
-    // Update booking status
-    const updatedBooking = await prisma.$executeRaw`
-      UPDATE drydock_bookings 
-      SET status = ${status}, notes = ${notes || null}, updatedAt = NOW()
-      WHERE id = ${bookingId}
-    `
+    // Start a transaction to update both booking and drydock request
+    const result = await prisma.$transaction(async (tx) => {
+      // Update booking status
+      const updatedBooking = await tx.$executeRaw`
+        UPDATE drydock_bookings 
+        SET status = ${status}, notes = ${notes || null}, updatedAt = NOW()
+        WHERE id = ${bookingId}
+      `
+
+      // If confirming the booking, also update the drydock request status to "Ongoing"
+      if (status === 'CONFIRMED') {
+        await tx.$executeRaw`
+          UPDATE drydock_requests dr
+          INNER JOIN drydock_bookings db ON dr.id = db.drydockRequestId
+          SET dr.status = 'IN_PROGRESS', dr.updatedAt = NOW()
+          WHERE db.id = ${bookingId}
+        `
+      }
+
+      return updatedBooking
+    })
 
     return NextResponse.json({
       success: true,
-      booking: updatedBooking
+      booking: result
     })
 
   } catch (error) {

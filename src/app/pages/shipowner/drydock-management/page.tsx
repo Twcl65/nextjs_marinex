@@ -2,25 +2,17 @@
 
 import Image from "next/image"
 import { ShipownerSidebar } from "@/components/shipowner-sidebar"
-import { Separator } from "@/components/ui/separator"
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { AppHeader } from "@/components/AppHeader"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Badge } from "@/components/ui/badge"
 import { Ship } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -31,8 +23,35 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, ChevronRight, Building2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Building2, FileText } from "lucide-react"
+
+// Type definitions
+interface DrydockRequest {
+  id: string;
+  userId: string;
+  vesselId: string;
+  companyName?: string;
+  companyLogoUrl?: string;
+  vesselName: string;
+  imoNumber: string;
+  flag: string;
+  shipType: string;
+  vesselImageUrl?: string;
+  priorityLevel: string;
+  servicesNeeded: string | Array<{ name: string } | string>;
+  scopeOfWorkUrl: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  bookingId?: string;
+  authorityCertificate?: string;
+}
+
+interface BookedShipyard {
+  id: string;
+  shipyardName: string;
+  drydockRequestId: string;
+}
 
 // ShipyardLogo component to handle S3 signed URLs
 function ShipyardLogo({ logoUrl, shipyardName }: { logoUrl: string; shipyardName: string }) {
@@ -43,7 +62,7 @@ function ShipyardLogo({ logoUrl, shipyardName }: { logoUrl: string; shipyardName
     if (logoUrl) {
       setImageError(false)
       
-      if (logoUrl.includes('s3.ap-southeast-2.amazonaws.com')) {
+      if (logoUrl.includes('s3.amazonaws.com')) {
         // Fetch signed URL for S3 images
         fetch(`/api/signed-url?url=${encodeURIComponent(logoUrl)}`)
           .then(res => res.json())
@@ -198,20 +217,33 @@ export default function DrydockManagementPage() {
   } | null>(null)
   const [isFromBookedView, setIsFromBookedView] = useState(false)
   const [isBookingLoading, setIsBookingLoading] = useState(false)
-  const [selectedVessel, setSelectedVessel] = useState<{
+  const [showAuthorityApprovalDialog, setShowAuthorityApprovalDialog] = useState(false)
+  const [showCreateAuthorityDialog, setShowCreateAuthorityDialog] = useState(false)
+  const [selectedDrydockRequest, setSelectedDrydockRequest] = useState<DrydockRequest | null>(null)
+  const [authorityRequests, setAuthorityRequests] = useState<{
     id: string;
-    name: string;
-    imoNumber: string;
-    shipType: string;
-    flag: string;
-    vesselImageUrl?: string;
-  } | null>(null)
+    requestDate: string;
+    status: string;
+    finalScopeOfWorkUrl?: string;
+    authorityCertificate?: string;
+    drydockRequest?: {
+      id: string;
+      status: string;
+      vesselName: string;
+      imoNumber: string;
+    } | null;
+  }[]>([])
+  const [isLoadingAuthorityRequests, setIsLoadingAuthorityRequests] = useState(false)
+  const [isCreatingAuthorityRequest, setIsCreatingAuthorityRequest] = useState(false)
   const [vessels, setVessels] = useState<{
     id: string;
     name: string;
     imoNumber: string;
     shipType: string;
     flag: string;
+    yearOfBuild?: number;
+    lengthOverall?: number;
+    grossTonnage?: number;
     vesselImageUrl?: string;
   }[]>([])
   const [loadingVessels, setLoadingVessels] = useState(true)
@@ -226,6 +258,7 @@ export default function DrydockManagementPage() {
   }[]>([])
   const [loadingServices, setLoadingServices] = useState(true)
   const [form, setForm] = useState({
+    vesselId: '',
     companyName: '',
     imoNumber: '',
     vesselName: '',
@@ -233,25 +266,15 @@ export default function DrydockManagementPage() {
     shipType: '',
     priorityLevel: 'Normal' as 'Normal' | 'Emergency',
     servicesNeeded: [] as string[],
-    scopeOfWork: null as File | null
+    scopeOfWork: null as File | null,
+    vesselImageUrl: ''
   })
   const [serviceAreas, setServiceAreas] = useState<Record<string, string>>({})
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   
   // Table states
-  const [drydockRequests, setDrydockRequests] = useState<{
-    id: string;
-    vesselId: string;
-    servicesNeeded: string | Array<{ name: string } | string>;
-    priorityLevel: string;
-    scopeOfWorkUrl: string;
-    status: string;
-    createdAt: string;
-    vesselName: string;
-    imoNumber: string;
-    companyName?: string;
-  }[]>([])
+  const [drydockRequests, setDrydockRequests] = useState<DrydockRequest[]>([])
   const [loadingRequests, setLoadingRequests] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(5)
@@ -272,7 +295,22 @@ export default function DrydockManagementPage() {
         const response = await fetch(`/api/vessels?userId=${user.id}`)
         if (response.ok) {
           const data = await response.json()
-          setVessels(data.vessels || [])
+          // Map vesselName to name for frontend compatibility
+          const mappedVessels = (data.vessels || []).map((vessel: {
+            id: string;
+            vesselName: string;
+            imoNumber: string;
+            shipType: string;
+            flag: string;
+            yearOfBuild?: number;
+            lengthOverall?: number;
+            grossTonnage?: number;
+            vesselImageUrl?: string;
+          }) => ({
+            ...vessel,
+            name: vessel.vesselName
+          }))
+          setVessels(mappedVessels)
         } else {
           console.error('Failed to fetch vessels')
           toast({
@@ -333,41 +371,123 @@ export default function DrydockManagementPage() {
     fetchAllServices()
   }, [toast])
 
-  // Fetch drydock requests from database
-  useEffect(() => {
-    const fetchDrydockRequests = async () => {
-      if (!user?.id) return
-      
-      try {
-        setLoadingRequests(true)
-        const response = await fetch(`/api/drydock-requests?userId=${user.id}`)
-        if (response.ok) {
-          const data = await response.json()
-          setDrydockRequests(data.requests || [])
-        } else {
-          console.error('Failed to fetch drydock requests')
-          toast({
-            title: "Error",
-            description: "Failed to load drydock requests. Please refresh the page.",
-            variant: "destructive"
-          })
-        }
-      } catch (error) {
-        console.error('Error fetching drydock requests:', error)
+  // Fetch authority requests for the user
+  const fetchAuthorityRequests = useCallback(async () => {
+    if (!user?.id) return []
+    
+    setIsLoadingAuthorityRequests(true)
+    try {
+      const response = await fetch(`/api/authority-approval-certificates?userId=${user.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setAuthorityRequests(data.authorityRequests || [])
+        return data.authorityRequests || []
+      }
+    } catch (error) {
+      console.error('Error fetching authority requests:', error)
+    } finally {
+      setIsLoadingAuthorityRequests(false)
+    }
+    return []
+  }, [user?.id])
+
+  // Check if authority request exists for a specific drydock request
+  const hasAuthorityRequest = useCallback((drydockRequestId: string) => {
+    return authorityRequests.some(request => 
+      request.drydockRequest && request.drydockRequest.id === drydockRequestId
+    )
+  }, [authorityRequests])
+
+  // Get authority request with certificate for a specific drydock request
+  const getAuthorityRequestWithCert = useCallback((drydockRequestId: string) => {
+    return authorityRequests.find(request => 
+      request.drydockRequest && 
+      request.drydockRequest.id === drydockRequestId &&
+      request.authorityCertificate
+    )
+  }, [authorityRequests])
+
+  // Create authority request
+  const createAuthorityRequest = useCallback(async (formData: FormData) => {
+    setIsCreatingAuthorityRequest(true)
+    try {
+      const response = await fetch('/api/authority-approval-certificates', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast({
+          title: "Success",
+          description: "Authority request submitted successfully",
+          variant: "default"
+        })
+        
+        // Refresh authority requests
+        await fetchAuthorityRequests()
+        
+        // Close the create dialog and show the table dialog
+        setShowCreateAuthorityDialog(false)
+        setShowAuthorityApprovalDialog(true)
+        
+        return result
+      } else {
+        const errorData = await response.json()
         toast({
           title: "Error",
-          description: "Error loading drydock requests. Please try again.",
+          description: errorData.error || "Failed to submit authority request",
           variant: "destructive"
         })
-      } finally {
-        setLoadingRequests(false)
       }
+    } catch (error) {
+      console.error('Error creating authority request:', error)
+      toast({
+        title: "Error",
+        description: "Failed to submit authority request",
+        variant: "destructive"
+      })
+    } finally {
+      setIsCreatingAuthorityRequest(false)
     }
+  }, [fetchAuthorityRequests, toast])
 
-    if (user?.id) {
-      fetchDrydockRequests()
+  // Fetch drydock requests from database
+  const fetchDrydockRequests = useCallback(async () => {
+    if (!user?.id) return
+    
+    try {
+      setLoadingRequests(true)
+      const response = await fetch(`/api/drydock-requests?userId=${user.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setDrydockRequests(data.requests || [])
+      } else {
+        console.error('Failed to fetch drydock requests')
+        toast({
+          title: "Error",
+          description: "Failed to load drydock requests. Please refresh the page.",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching drydock requests:', error)
+      toast({
+        title: "Error",
+        description: "Error loading drydock requests. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoadingRequests(false)
     }
   }, [user?.id, toast])
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchDrydockRequests()
+      fetchAuthorityRequests()
+    }
+  }, [user?.id, fetchDrydockRequests, fetchAuthorityRequests])
 
 
   // Filter and search functions
@@ -404,21 +524,22 @@ export default function DrydockManagementPage() {
       case 'IN_PROGRESS':
         return 'bg-blue-100 text-blue-800'
       case 'COMPLETED':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-green-100 text-green-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
   }
 
   const handleVesselSelect = (vessel: { id: string; name: string; imoNumber: string; shipType: string; flag: string; vesselImageUrl?: string }) => {
-    setSelectedVessel(vessel)
     setForm(prev => ({
       ...prev,
+      vesselId: vessel.id,
       companyName: user?.fullName || '',
       imoNumber: vessel.imoNumber,
       vesselName: vessel.name,
       flag: vessel.flag || '',
-      shipType: vessel.shipType || ''
+      shipType: vessel.shipType || '',
+      vesselImageUrl: vessel.vesselImageUrl || ''
     }))
   }
 
@@ -487,7 +608,7 @@ export default function DrydockManagementPage() {
       // Create FormData for file upload
       const submitFormData = new FormData()
       submitFormData.append('userId', user?.id || '')
-      submitFormData.append('vesselId', selectedVessel?.id || '')
+      submitFormData.append('vesselId', form.vesselId || '')
       submitFormData.append('companyName', form.companyName)
       submitFormData.append('vesselName', form.vesselName)
       submitFormData.append('imoNumber', form.imoNumber)
@@ -496,7 +617,7 @@ export default function DrydockManagementPage() {
       submitFormData.append('priorityLevel', form.priorityLevel)
       submitFormData.append('servicesNeeded', JSON.stringify(servicesWithAreas))
       submitFormData.append('companyLogoUrl', user?.logoUrl || '')
-      submitFormData.append('vesselImageUrl', selectedVessel?.vesselImageUrl || '')
+      submitFormData.append('vesselImageUrl', form.vesselImageUrl || '')
       
       if (form.scopeOfWork) {
         submitFormData.append('scopeOfWork', form.scopeOfWork)
@@ -513,6 +634,7 @@ export default function DrydockManagementPage() {
         setShowRequestForm(false)
         // Reset form
         setForm({
+          vesselId: '',
           companyName: '',
           imoNumber: '',
           vesselName: '',
@@ -520,10 +642,12 @@ export default function DrydockManagementPage() {
           shipType: '',
           priorityLevel: 'Normal',
           servicesNeeded: [],
-          scopeOfWork: null
+          scopeOfWork: null,
+          vesselImageUrl: ''
         })
         setServiceAreas({})
-        setSelectedVessel(null)
+        // Refresh the drydock requests table
+        await fetchDrydockRequests()
         // Show success toast
         toast({
           title: "Success",
@@ -706,21 +830,25 @@ export default function DrydockManagementPage() {
   }
 
   const fetchBookedShipyards = async (drydockRequestId: string) => {
-    if (!user?.id) return
+    if (!user?.id) return []
     
     setLoadingBookedShipyards(true)
     try {
       const response = await fetch(`/api/shipowner/drydock-bookings?drydockRequestId=${drydockRequestId}&userId=${user.id}`)
       if (response.ok) {
         const data = await response.json()
-        setBookedShipyards(data.bookings || [])
+        const bookings = data.bookings || []
+        setBookedShipyards(bookings)
+        return bookings
       } else {
         console.error('Failed to fetch booked shipyards')
         setBookedShipyards([])
+        return []
       }
     } catch (error) {
       console.error('Error fetching booked shipyards:', error)
       setBookedShipyards([])
+      return []
     } finally {
       setLoadingBookedShipyards(false)
     }
@@ -935,35 +1063,27 @@ export default function DrydockManagementPage() {
     )
   })
 
+
+
+
+
+
+
   return (
     <SidebarProvider>
       <ShipownerSidebar />
       <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 ml-1 mb-0 pb-0">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/pages/shipowner">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Drydock Management</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto">
-            <ProfileDropdown />
-          </div>
-        </header>
+        <AppHeader 
+          breadcrumbs={[
+            { label: "Dashboard", href: "/pages/shipowner" },
+            { label: "Drydock Management", isCurrentPage: true }
+          ]} 
+        />
         <div className="px-5 pt-0 mt-0">
-          <h1 className="text-xl md:text-2xl font-bold text-[#134686]">Drydock Management</h1>
-          <p className="text-sm text-muted-foreground mt-1">Plan and track drydock schedules and tasks.</p>
+          <h1 className="text-lg md:text-2xl font-bold text-[#134686]">Drydock Management</h1>
+          <p className="text-sm text-gray-500 mt-1">Plan and track drydock schedules and tasks.</p>
           <Button 
-            className="mt-4 bg-[#134686] hover:bg-[#134686]/90 text-white"
+            className="mt-4 bg-green-600 hover:bg-green-700/90 text-white cursor-pointer"
             onClick={() => setShowRequestForm(true)}
           >
             Request Drydock
@@ -1046,7 +1166,6 @@ export default function DrydockManagementPage() {
                       <TableCell colSpan={7} className="text-center py-8 text-muted-foreground px-4">
        
                         <p className="text-gray-600">No drydock requests found</p>
-                        <p className="text-sm text-gray-500 mt-1">Submit your first drydock request using the button above</p>
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1092,19 +1211,122 @@ export default function DrydockManagementPage() {
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-3 px-4">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="bg-[#134686] cursor-pointer text-white border-[#134686] hover:bg-[#134686]/90 hover:text-white h-7 w-7 p-0"
-                            title="Browse Shipyard"
-                            onClick={() => {
-                              setSelectedRequest(request)
-                              setShowBrowseShipyard(true)
-                              fetchShipyardsWithBids(request.id)
-                            }}
-                          >
-                            <Building2 className="h-4 w-4" />
-                          </Button>
+                          {request.status === 'COMPLETED' ? (
+                            <span className="text-sm text-gray-600">Completed</span>
+                          ) : request.status === 'IN_PROGRESS' ? (
+                            (() => {
+                              const authorityRequestWithCert = getAuthorityRequestWithCert(request.id)
+                              if (authorityRequestWithCert?.authorityCertificate) {
+                                // Show "View Authority Cert" button if certificate exists
+                                return (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="bg-blue-600 cursor-pointer text-white border-blue-600 hover:bg-blue-700 hover:text-white px-3 py-1.5"
+                                    onClick={async () => {
+                                      if (authorityRequestWithCert.authorityCertificate) {
+                                        try {
+                                          // Get signed URL for the certificate
+                                          const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(authorityRequestWithCert.authorityCertificate)}`)
+                                          
+                                          if (response.ok) {
+                                            const data = await response.json()
+                                            
+                                            if (data.signedUrl) {
+                                              // Extract filename from URL or use default
+                                              let filename = 'Authority_Certificate.pdf'
+                                              try {
+                                                const urlParts = authorityRequestWithCert.authorityCertificate.split('/')
+                                                const lastPart = urlParts[urlParts.length - 1]
+                                                if (lastPart && lastPart.includes('.')) {
+                                                  const fileNamePart = lastPart.split('?')[0]
+                                                  filename = fileNamePart || filename
+                                                }
+                                              } catch (e) {
+                                                // Use default filename
+                                              }
+
+                                              // Open PDF in new tab
+                                              window.open(data.signedUrl, '_blank')
+                                            } else {
+                                              console.error('No signed URL in response')
+                                              toast({
+                                                title: "Error",
+                                                description: "Failed to generate certificate URL. Please try again.",
+                                                variant: "destructive"
+                                              })
+                                            }
+                                          } else {
+                                            const errorText = await response.text().catch(() => 'Unknown error')
+                                            console.error('Failed to generate signed URL:', response.status, errorText)
+                                            toast({
+                                              title: "Error",
+                                              description: "Failed to load certificate. Please try again.",
+                                              variant: "destructive"
+                                            })
+                                          }
+                                        } catch (error) {
+                                          console.error('Error opening certificate:', error)
+                                          toast({
+                                            title: "Error",
+                                            description: "An error occurred while opening the certificate.",
+                                            variant: "destructive"
+                                          })
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    View Authority Cert
+                                  </Button>
+                                )
+                              } else {
+                                // Show "Request Authority Cert" button if no certificate exists
+                                return (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="bg-green-600 cursor-pointer text-white border-green-600 hover:bg-green-700 hover:text-white px-3 py-1.5"
+                                    onClick={async () => {
+                                      // Check if authority request already exists
+                                      if (hasAuthorityRequest(request.id)) {
+                                        // Show the table dialog if authority request exists
+                                        setShowAuthorityApprovalDialog(true)
+                                      } else {
+                                        // Load booked shipyards for this specific request
+                                        const bookings = await fetchBookedShipyards(request.id)
+                                        
+                                        // Find the booking ID for this drydock request
+                                        const booking = bookings.find((booking: BookedShipyard) => booking.drydockRequestId === request.id)
+                                        const requestWithBooking = {
+                                          ...request,
+                                          bookingId: booking?.id || ''
+                                        }
+                                        
+                                        // Show create dialog if no authority request exists
+                                        setSelectedDrydockRequest(requestWithBooking)
+                                        setShowCreateAuthorityDialog(true)
+                                      }
+                                    }}
+                                  >
+                                    Request Authority Cert
+                                  </Button>
+                                )
+                              }
+                            })()
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-[#134686] cursor-pointer text-white border-[#134686] hover:bg-[#134686]/90 hover:text-white px-3 py-1.5"
+                              onClick={() => {
+                                setSelectedRequest(request)
+                                setShowBrowseShipyard(true)
+                                fetchShipyardsWithBids(request.id)
+                              }}
+                            >
+                              Browse Bidders
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
@@ -1190,7 +1412,7 @@ export default function DrydockManagementPage() {
                   </div>
                 ) : (
                   <Select
-                    value={selectedVessel?.id?.toString() || ''}
+                    value={form.vesselId || ''}
                     onValueChange={(value) => {
                       const vessel = vessels.find(v => v.id.toString() === value);
                       if (vessel) {
@@ -1236,7 +1458,7 @@ export default function DrydockManagementPage() {
               </div>
 
               {/* Drydock Request Form (only if vessel selected) */}
-              {selectedVessel && (
+              {form.vesselId && (
                 <form className="space-y-6 mt-6 bg-white">
                   {/* Form Fields - 2 inputs per row */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1317,7 +1539,7 @@ export default function DrydockManagementPage() {
                       </div>
                     ) : userServices.length === 0 ? (
                       <div className="text-center py-4 text-gray-500">
-                        <p>No services available. Please add services first.</p>
+                        <p>No services available.</p>
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -1417,9 +1639,9 @@ export default function DrydockManagementPage() {
         <Dialog open={showBrowseShipyard} onOpenChange={setShowBrowseShipyard}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
             <DialogHeader className="bg-white">
-              <DialogTitle className="bg-white font-bold text-[#134686] text-xl">Browse Shipyards</DialogTitle>
+              <DialogTitle className="bg-white font-bold text-[#134686] text-xl">Browse Bidders</DialogTitle>
               <DialogDescription className="bg-white text-gray-600">
-                Select a shipyard to book your drydock services for {selectedRequest?.vesselName || 'your vessel'}.
+                Select a recommended bidder to book your drydock services for {selectedRequest?.vesselName || 'your vessel'}. Only recommended bidders are shown.
               </DialogDescription>
             </DialogHeader>
             
@@ -1448,7 +1670,12 @@ export default function DrydockManagementPage() {
                     </div>
                     {shipyardSearchTerm && shipyardsWithBids.length > 0 && (
                       <p className="text-sm text-gray-500">
-                        Showing {filteredShipyards.length} of {shipyardsWithBids.length} shipyards
+                        Showing {filteredShipyards.length} of {shipyardsWithBids.length} recommended shipyards
+                      </p>
+                    )}
+                    {!shipyardSearchTerm && shipyardsWithBids.length > 0 && (
+                      <p className="text-sm text-gray-500">
+                        {shipyardsWithBids.length} recommended {shipyardsWithBids.length === 1 ? 'bidder' : 'bidders'} available
                       </p>
                     )}
                   </div>
@@ -1461,13 +1688,13 @@ export default function DrydockManagementPage() {
                   </div>
                 ) : shipyardsWithBids.length === 0 ? (
                   <div className="border border-gray-200 rounded-lg p-6 text-center">
-                    <Building2 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                    <p className="text-gray-500">No shipyards have submitted bids yet</p>
-                    <p className="text-sm text-gray-400 mt-2">Check back later for available shipyards</p>
+                   
+                    <p className="text-gray-500">No recommended bidders available yet</p>
+                    <p className="text-sm text-gray-400 mt-2">Only recommended bidders are shown. Check back later when bidders have been recommended.</p>
                   </div>
                 ) : filteredShipyards.length === 0 ? (
                   <div className="border border-gray-200 rounded-lg p-6 text-center">
-                    <Building2 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                  
                     <p className="text-gray-500">No shipyards match your search</p>
                     <p className="text-sm text-gray-400 mt-2">Try adjusting your search terms</p>
                   </div>
@@ -1919,9 +2146,9 @@ export default function DrydockManagementPage() {
         <Dialog open={openBookedShipyardsDialog} onOpenChange={setOpenBookedShipyardsDialog}>
           <DialogContent className="sm:max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Booked Shipyards</DialogTitle>
+              <DialogTitle>Booked Shipyards for {selectedRequest?.vesselName || 'Vessel'}</DialogTitle>
               <DialogDescription>
-                View and manage your booked shipyards for this drydock request.
+                View and manage your booked shipyards for the {selectedRequest?.vesselName || 'vessel'} drydock request.
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">
@@ -1931,7 +2158,10 @@ export default function DrydockManagementPage() {
                 </div>
               ) : bookedShipyards.length === 0 ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-sm text-gray-500">No booked shipyards found for this drydock request.</div>
+                  <div className="text-center">
+                    <div className="text-sm text-gray-500 mb-2">No booked shipyards found for {selectedRequest?.vesselName || 'this vessel'}.</div>
+                    <div className="text-xs text-gray-400">This vessel has no active bookings at the moment.</div>
+                  </div>
                 </div>
               ) : (
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -2010,15 +2240,16 @@ export default function DrydockManagementPage() {
                               >
                                 View Full Information
                               </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleCancelBooking(booking)}
-                                disabled={booking.status === 'COMPLETED' || booking.status === 'CANCELLED'}
-                                className="bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                Cancel
-                              </Button>
+                              {booking.status !== 'CONFIRMED' && booking.status !== 'COMPLETED' && booking.status !== 'CANCELLED' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleCancelBooking(booking)}
+                                  className="bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700"
+                                >
+                                  Cancel
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -2028,14 +2259,286 @@ export default function DrydockManagementPage() {
                 </div>
               )}
             </div>
-            <DialogFooter>
-              <Button 
-                variant="outline" 
-                onClick={handleCloseBookedShipyardsDialog}
-              >
-                Close
-              </Button>
-            </DialogFooter>
+           
+          </DialogContent>
+        </Dialog>
+
+        {/* Authority Requests Table Dialog */}
+        <Dialog open={showAuthorityApprovalDialog} onOpenChange={setShowAuthorityApprovalDialog}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-[#134686]">Authority Requests Status</DialogTitle>
+              <DialogDescription>
+                View and manage your authority requests for drydock operations.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {isLoadingAuthorityRequests ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#134686]"></div>
+                  <span className="ml-2">Loading authority requests...</span>
+                </div>
+              ) : authorityRequests.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No authority requests found.</p>
+                </div>
+              ) : (
+                <div className="border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Request Date</TableHead>
+                        <TableHead>Vessel Name</TableHead>
+                        <TableHead>IMO Number</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Scope of Work</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {authorityRequests.map((request) => (
+                        <TableRow key={request.id}>
+                          <TableCell>
+                            {new Date(request.requestDate).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            {request.drydockRequest?.vesselName || 'N/A'}
+                          </TableCell>
+                          <TableCell>
+                            {request.drydockRequest?.imoNumber || 'N/A'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant={
+                                request.status === 'APPROVED' ? 'default' :
+                                request.status === 'REJECTED' ? 'destructive' :
+                                request.status === 'ISSUED' ? 'secondary' :
+                                'outline'
+                              }
+                            >
+                              {request.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {request.finalScopeOfWorkUrl ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => window.open(request.finalScopeOfWorkUrl, '_blank')}
+                              >
+                                View File
+                              </Button>
+                            ) : (
+                              <span className="text-gray-500">No file</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              {request.status === 'REQUESTED' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    // Add functionality to edit/cancel request
+                                    console.log('Edit request:', request.id)
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              )}
+                              {request.status === 'APPROVED' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs bg-red-100 text-red-700 border-red-200 hover:bg-red-200 hover:text-red-800"
+                                  onClick={async () => {
+                                    if (request.authorityCertificate) {
+                                      try {
+                                        // Get signed URL for the certificate
+                                        const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(request.authorityCertificate)}`)
+                                        
+                                        if (response.ok) {
+                                          const data = await response.json()
+                                          
+                                          if (data.signedUrl) {
+                                            // Extract filename from URL or use default
+                                            let filename = 'Authority_Certificate.pdf'
+                                            try {
+                                              const urlParts = request.authorityCertificate.split('/')
+                                              const lastPart = urlParts[urlParts.length - 1]
+                                              if (lastPart && lastPart.includes('.')) {
+                                                const fileNamePart = lastPart.split('?')[0]
+                                                filename = fileNamePart || filename
+                                              }
+                                            } catch (e) {
+                                              // Use default filename
+                                            }
+
+                                            // Create a temporary anchor element to trigger download
+                                            const link = document.createElement('a')
+                                            link.href = data.signedUrl
+                                            link.download = filename
+                                            link.target = '_blank' // Open in new tab as fallback
+                                            document.body.appendChild(link)
+                                            link.click()
+                                            document.body.removeChild(link)
+                                          } else {
+                                            console.error('No signed URL in response')
+                                          }
+                                        } else {
+                                          const errorText = await response.text().catch(() => 'Unknown error')
+                                          console.error('Failed to generate signed URL:', response.status, errorText)
+                                        }
+                                      } catch (error) {
+                                        console.error('Error opening certificate:', error)
+                                      }
+                                    } else {
+                                      console.log('No certificate available for request:', request.id)
+                                    }
+                                  }}
+                                >
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  View Certificate
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+
+           
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Authority Request Dialog */}
+        <Dialog open={showCreateAuthorityDialog} onOpenChange={setShowCreateAuthorityDialog}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-[#134686]">Request Authority Approval Certificate</DialogTitle>
+              <DialogDescription>
+                Submit your final scope of work document to request authority approval for drydock operations.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedDrydockRequest && (
+              <form onSubmit={async (e) => {
+                e.preventDefault()
+                const formData = new FormData(e.currentTarget)
+                
+                // Add required fields
+                formData.append('userId', user?.id || '')
+                formData.append('vesselId', selectedDrydockRequest.vesselId)
+                formData.append('drydockRequestId', selectedDrydockRequest.id)
+                formData.append('drydockBookingId', selectedDrydockRequest.bookingId || '')
+                
+                await createAuthorityRequest(formData)
+              }} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="vesselName" className="text-sm font-medium">Vessel Name</Label>
+                    <Input
+                      id="vesselName"
+                      value={selectedDrydockRequest.vesselName}
+                      readOnly
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="imoNumber" className="text-sm font-medium">IMO Number</Label>
+                    <Input
+                      id="imoNumber"
+                      value={selectedDrydockRequest.imoNumber}
+                      readOnly
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="companyName" className="text-sm font-medium">Company</Label>
+                    <Input
+                      id="companyName"
+                      value={selectedDrydockRequest.companyName}
+                      readOnly
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="shipType" className="text-sm font-medium">Ship Type</Label>
+                    <Input
+                      id="shipType"
+                      value={selectedDrydockRequest.shipType}
+                      readOnly
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+
+                {selectedDrydockRequest.bookingId && (
+                  <div>
+                    <Label htmlFor="bookedShipyard" className="text-sm font-medium">Booked Shipyard</Label>
+                    <Input
+                      id="bookedShipyard"
+                      value={bookedShipyards.find((booking: BookedShipyard) => booking.id === selectedDrydockRequest.bookingId)?.shipyardName || 'Loading...'}
+                      readOnly
+                      className="mt-1"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <Label htmlFor="finalScopeOfWork" className="text-sm font-medium">
+                    Final Scope of Work Document <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="finalScopeOfWork"
+                    name="finalScopeOfWork"
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    required
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Upload the final scope of work document (PDF, DOC, or DOCX)
+                  </p>
+                </div>
+
+                <DialogFooter>
+                  <Button 
+                    type="button"
+                    variant="outline" 
+                    onClick={() => {
+                      setShowCreateAuthorityDialog(false)
+                      setSelectedDrydockRequest(null)
+                    }}
+                    disabled={isCreatingAuthorityRequest}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit"
+                    disabled={isCreatingAuthorityRequest}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {isCreatingAuthorityRequest ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Submitting...
+                      </>
+                    ) : (
+                      'Submit Request'
+                    )}
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
           </DialogContent>
         </Dialog>
       </SidebarInset>

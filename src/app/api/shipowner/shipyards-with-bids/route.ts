@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
     console.log('Fetching shipyards with bids for drydock request:', drydockRequestId)
 
     // Fetch shipyards that have submitted bids for this drydock request
+    // Only show recommended bids (status = 'RECOMMENDED')
     const shipyardsWithBids = await prisma.$queryRaw`
       SELECT 
         db.id as bidId,
@@ -40,10 +41,11 @@ export async function GET(req: NextRequest) {
       FROM drydock_bids db
       LEFT JOIN users u ON db.shipyardUserId = u.id
       WHERE db.drydockRequestId = ${drydockRequestId}
+        AND db.status = 'RECOMMENDED'
       ORDER BY db.submittedAt DESC
     `
 
-    console.log(`Found ${Array.isArray(shipyardsWithBids) ? shipyardsWithBids.length : 0} shipyards with bids`)
+    console.log(`Found ${Array.isArray(shipyardsWithBids) ? shipyardsWithBids.length : 0} recommended shipyards with bids for drydock request ${drydockRequestId}`)
 
     // Transform the data to match the expected format
     const transformedShipyards = Array.isArray(shipyardsWithBids)

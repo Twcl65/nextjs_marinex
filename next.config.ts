@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'marinexdb-files.s3.ap-southeast-2.amazonaws.com',
+        hostname: 'marinexdbofficial.s3.ap-southeast-1.amazonaws.com',
         port: '',
         pathname: '/**',
       },

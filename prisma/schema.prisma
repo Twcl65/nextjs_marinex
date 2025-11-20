@@ -8,11 +8,11 @@ datasource db {
 }
 
 model User {
-  id                  String           @id @default(cuid())
-  email               String           @unique
+  id                  String                    @id @default(cuid())
+  email               String                    @unique
   passwordHash        String
   role                Role
-  status              AccountStatus    @default(INACTIVE)
+  status              AccountStatus             @default(INACTIVE)
   fullName            String?
   shipyardName        String?
   contactNumber       String?
@@ -26,14 +26,19 @@ model User {
   shipyardServices    Json?
   shipyardDryDock     String?
   contactPerson       String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  authorityRequests   DrydockAuthorityRequest[]
   drydockBids         DrydockBid[]
+  shipyardBookings    DrydockBooking[]          @relation("ShipyardBookings")
+  bookings            DrydockBooking[]
   drydockRequests     DrydockRequest[]
   vessels             ShipVessel[]
   services            UserService[]
-  bookings            DrydockBooking[]
-  shipyardBookings    DrydockBooking[] @relation("ShipyardBookings")
+  vesselRecertificates DrydockVesselRecertificate[]
+  mcNotifications     DrydockMcNotification[]
+  sentDocuments       UserDocument[]              @relation("SentDocuments")
+  issuedCertificates  DrydockIssuedCertificate[] @relation("IssuedCertificates")
 
   @@map("users")
 }
@@ -75,6 +80,10 @@ model ShipVessel {
   updatedAt                 DateTime         @updatedAt
   vesselCertificationExpiry DateTime?
   drydockRequests           DrydockRequest[]
+  vesselRecertificates      DrydockVesselRecertificate[]
+  mcNotifications           DrydockMcNotification[]
+  documents                 UserDocument[]
+  issuedCertificates        DrydockIssuedCertificate[] @relation("IssuedCertificates")
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId], map: "ship_vessels_userId_fkey")
@@ -82,26 +91,27 @@ model ShipVessel {
 }
 
 model DrydockRequest {
-  id             String        @id @default(cuid())
-  userId         String
-  vesselId       String
-  companyName    String
-  companyLogoUrl String?
-  vesselName     String
-  imoNumber      String
-  flag           String
-  shipType       String
-  vesselImageUrl String?
-  priorityLevel  PriorityLevel @default(NORMAL)
-  servicesNeeded Json
-  scopeOfWorkUrl String?
-  status         RequestStatus @default(PENDING)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  drydockBids    DrydockBid[]
-  bookings       DrydockBooking[]
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  vessel         ShipVessel    @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  id                String                    @id @default(cuid())
+  userId            String
+  vesselId          String
+  companyName       String
+  companyLogoUrl    String?
+  vesselName        String
+  imoNumber         String
+  flag              String
+  shipType          String
+  vesselImageUrl    String?
+  priorityLevel     PriorityLevel             @default(NORMAL)
+  servicesNeeded    Json
+  scopeOfWorkUrl    String?
+  status            RequestStatus             @default(PENDING)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  authorityRequests DrydockAuthorityRequest[]
+  drydockBids       DrydockBid[]
+  bookings          DrydockBooking[]
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vessel            ShipVessel                @relation(fields: [vesselId], references: [id], onDelete: Cascade)
 
   @@index([userId], map: "drydock_requests_userId_fkey")
   @@index([vesselId], map: "drydock_requests_vesselId_fkey")
@@ -109,7 +119,7 @@ model DrydockRequest {
 }
 
 model DrydockBid {
-  id                    String         @id @default(cuid())
+  id                    String           @id @default(cuid())
   drydockRequestId      String
   shipyardUserId        String
   shipyardName          String
@@ -128,16 +138,183 @@ model DrydockBid {
   totalDays             Int
   parallelDays          Int
   sequentialDays        Int
-  status                BidStatus      @default(SUBMITTED)
-  submittedAt           DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  drydockRequest        DrydockRequest @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
-  shipyardUser          User           @relation(fields: [shipyardUserId], references: [id], onDelete: Cascade)
+  status                BidStatus        @default(SUBMITTED)
+  submittedAt           DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  drydockRequest        DrydockRequest   @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
+  shipyardUser          User             @relation(fields: [shipyardUserId], references: [id], onDelete: Cascade)
   bookings              DrydockBooking[]
+  services              DrydockService[]
 
   @@index([drydockRequestId], map: "drydock_bids_drydockRequestId_fkey")
   @@index([shipyardUserId], map: "drydock_bids_shipyardUserId_fkey")
   @@map("drydock_bids")
+}
+
+model DrydockBooking {
+  id                String                    @id @default(cuid())
+  drydockRequestId  String
+  drydockBidId      String
+  userId            String
+  shipyardUserId    String
+  status            BookingStatus             @default(PENDING)
+  bookingDate       DateTime                  @default(now())
+  notes             String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  authorityRequests DrydockAuthorityRequest[]
+  drydockBid        DrydockBid                @relation(fields: [drydockBidId], references: [id], onDelete: Cascade)
+  drydockRequest    DrydockRequest            @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
+  shipyardUser      User                      @relation("ShipyardBookings", fields: [shipyardUserId], references: [id], onDelete: Cascade)
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  services          DrydockService[]
+
+  @@index([drydockRequestId], map: "drydock_bookings_drydockRequestId_fkey")
+  @@index([drydockBidId], map: "drydock_bookings_drydockBidId_fkey")
+  @@index([userId], map: "drydock_bookings_userId_fkey")
+  @@index([shipyardUserId], map: "drydock_bookings_shipyardUserId_fkey")
+  @@map("drydock_bookings")
+}
+
+model DrydockAuthorityRequest {
+  id                   String            @id @default(cuid())
+  drydockRequestId     String
+  drydockBookingId     String
+  vesselId             String
+  userId               String
+  status               CertificateStatus @default(REQUESTED)
+  requestDate          DateTime          @default(now())
+  finalScopeOfWorkUrl  String?
+  authorityCertificate String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  drydockBooking       DrydockBooking    @relation(fields: [drydockBookingId], references: [id], onDelete: Cascade)
+  drydockRequest       DrydockRequest    @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([drydockRequestId], map: "drydock_authority_requests_drydockRequestId_fkey")
+  @@index([drydockBookingId], map: "drydock_authority_requests_drydockBookingId_fkey")
+  @@index([userId], map: "drydock_authority_requests_userId_fkey")
+  @@index([vesselId], map: "drydock_authority_requests_vesselId_fkey")
+  @@map("drydock_authority_requests")
+}
+
+model DrydockService {
+  id               String         @id @default(cuid())
+  drydockBidId     String
+  drydockBookingId String
+  serviceName      String
+  startDate        DateTime
+  endDate          DateTime
+  progress         Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  drydockBid       DrydockBid     @relation(fields: [drydockBidId], references: [id], onDelete: Cascade)
+  drydockBooking   DrydockBooking @relation(fields: [drydockBookingId], references: [id], onDelete: Cascade)
+  progressUpdates  DrydockProgress[]
+
+  @@index([drydockBidId], map: "drydock_services_drydockBidId_fkey")
+  @@index([drydockBookingId], map: "drydock_services_drydockBookingId_fkey")
+  @@map("drydock_services")
+}
+
+model DrydockProgress {
+  id               String         @id @default(cuid())
+  drydockServiceId  String
+  progressLevel     String
+  progressPercent   Int
+  comment           String?
+  imageUrl          String?
+  updatedBy         String
+  updatedAt         DateTime       @default(now())
+  drydockService    DrydockService @relation(fields: [drydockServiceId], references: [id], onDelete: Cascade)
+
+  @@index([drydockServiceId], map: "drydock_progress_drydockServiceId_fkey")
+  @@map("drydock_progress")
+}
+
+model DrydockVesselRecertificate {
+  id                    String           @id @default(cuid())
+  userId                String
+  vesselId              String
+  companyName           String
+  vesselName            String
+  vesselImoNumber       String
+  vesselPlansUrl        String?
+  drydockReportUrl      String?
+  drydockCertificateUrl String?
+  safetyCertificateUrl  String?
+  vesselCertificateFile String?
+  status                RecertificateStatus @default(PENDING)
+  requestedDate         DateTime         @default(now())
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vessel                ShipVessel       @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "drydock_vessel_recertificate_userId_fkey")
+  @@index([vesselId], map: "drydock_vessel_recertificate_vesselId_fkey")
+  @@map("drydock_vessel_recertificate")
+}
+
+model DrydockMcNotification {
+  id                String   @id @default(cuid())
+  userId            String
+  vesselId          String
+  drydockReport     Int      @default(0)
+  drydockCertificate Int     @default(0)
+  safetyCertificate Int      @default(0)
+  vesselPlans       Int      @default(0)
+  title             String
+  type              String
+  message           String   @db.Text
+  isRead            Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vessel            ShipVessel @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "drydock_mc_notifications_userId_fkey")
+  @@index([vesselId], map: "drydock_mc_notifications_vesselId_fkey")
+  @@map("drydock_mc_notifications")
+}
+
+model UserDocument {
+  id            String      @id @default(cuid())
+  vesselId      String
+  senderId      String
+  documentType  String
+  documentName  String
+  documentUrl   String
+  description   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  vessel        ShipVessel  @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  sender        User        @relation("SentDocuments", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([vesselId], map: "user_documents_vesselId_fkey")
+  @@index([senderId], map: "user_documents_senderId_fkey")
+  @@map("user_documents")
+}
+
+model DrydockIssuedCertificate {
+  id                String      @id @default(cuid())
+  drydockBookingId  String
+  vesselId          String
+  userId            String
+  certificateName   String
+  certificateType   String
+  certificateUrl    String?
+  issuedDate        DateTime    @default(now())
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  vessel            ShipVessel  @relation("IssuedCertificates", fields: [vesselId], references: [id], onDelete: Cascade)
+  user              User        @relation("IssuedCertificates", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([vesselId], map: "drydock_issued_certificates_vesselId_fkey")
+  @@index([userId], map: "drydock_issued_certificates_userId_fkey")
+  @@index([drydockBookingId], map: "drydock_issued_certificates_drydockBookingId_fkey")
+  @@map("drydock_issued_certificates")
 }
 
 enum Role {
@@ -173,29 +350,6 @@ enum RequestStatus {
   COMPLETED
 }
 
-model DrydockBooking {
-  id              String           @id @default(cuid())
-  drydockRequestId String
-  drydockBidId    String
-  userId          String
-  shipyardUserId  String
-  status          BookingStatus    @default(PENDING)
-  bookingDate     DateTime         @default(now())
-  notes           String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  drydockRequest  DrydockRequest   @relation(fields: [drydockRequestId], references: [id], onDelete: Cascade)
-  drydockBid      DrydockBid       @relation(fields: [drydockBidId], references: [id], onDelete: Cascade)
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shipyardUser    User             @relation("ShipyardBookings", fields: [shipyardUserId], references: [id], onDelete: Cascade)
-
-  @@index([drydockRequestId], map: "drydock_bookings_drydockRequestId_fkey")
-  @@index([drydockBidId], map: "drydock_bookings_drydockBidId_fkey")
-  @@index([userId], map: "drydock_bookings_userId_fkey")
-  @@index([shipyardUserId], map: "drydock_bookings_shipyardUserId_fkey")
-  @@map("drydock_bookings")
-}
-
 enum BidStatus {
   SUBMITTED
   UNDER_REVIEW
@@ -211,4 +365,21 @@ enum BookingStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+}
+
+enum CertificateStatus {
+  REQUESTED
+  PENDING
+  APPROVED
+  REJECTED
+  ISSUED
+  EXPIRED
+}
+
+enum RecertificateStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  COMPLETED
 }

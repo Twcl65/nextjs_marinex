@@ -2,17 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { ShipyardSidebar } from "@/components/shipyard-sidebar"
-import { Separator } from "@/components/ui/separator"
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { AppHeader } from "@/components/AppHeader"
 import { Card, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -136,34 +127,47 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
     hasUserBid: boolean
 }) {
     const [imageUrl, setImageUrl] = useState<string | null>(null);
+    const [isLoadingImage, setIsLoadingImage] = useState(false);
     const [imageError, setImageError] = useState(false);
 
     useEffect(() => {
-        if (request.vessel?.picture) {
-            setImageError(false); // Reset error state when URL changes
+        // Reset states when vessel changes
+        setImageUrl(null);
+        setIsLoadingImage(false);
+        setImageError(false);
+
+        const picture = request.vessel?.picture;
+        if (picture) {
+            setIsLoadingImage(true);
+            console.log('VesselCard - Loading image for', request.vessel?.name, ':', picture);
             
-            if (request.vessel.picture.includes('s3.ap-southeast-2.amazonaws.com')) {
+            // Check if it's an S3 URL - proactively get signed URL
+            if (picture.includes('s3.amazonaws.com') || picture.includes('amazonaws.com')) {
                 // Fetch signed URL for S3 images
-                fetch(`/api/signed-url?url=${encodeURIComponent(request.vessel.picture)}`)
+                fetch(`/api/signed-url?url=${encodeURIComponent(picture)}`)
                     .then(res => res.json())
                     .then(data => {
                         if (data.signedUrl) {
+                            console.log('VesselCard - Got signed URL for', request.vessel?.name);
                             setImageUrl(data.signedUrl);
+                        } else {
+                            console.error('VesselCard - No signedUrl in response, trying direct URL');
+                            setImageUrl(picture);
                         }
                     })
                     .catch(err => {
-                        console.error('Error fetching signed URL:', err);
-                        setImageUrl(request.vessel.picture || null);
+                        console.error('VesselCard - Error fetching signed URL, trying direct URL:', err);
+                        setImageUrl(picture);
                     });
             } else {
                 // For non-S3 URLs, use directly
-                setImageUrl(request.vessel.picture || null);
+                setImageUrl(picture);
             }
         } else {
-            setImageUrl(null);
-            setImageError(false);
+            console.log('VesselCard - No vessel picture for', request.vessel?.name);
+            setIsLoadingImage(false);
         }
-    }, [request.vessel?.picture]);
+    }, [request.vessel?.picture, request.vessel?.name]);
 
     // Helper to robustly get an array of needed services (for backward compatibility)
     function getNormalizedNeededServices(selectedRequest: DrydockRequest): string[] {
@@ -183,12 +187,47 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                         width={260}
                         height={135}
                         className="w-full h-full object-cover rounded-t-xl"
-                        onError={() => setImageError(true)}
+                        onLoad={() => {
+                            console.log('VesselCard - Image loaded successfully for', request.vessel?.name);
+                            setIsLoadingImage(false);
+                            setImageError(false);
+                        }}
+                        onError={(e) => {
+                            console.error('VesselCard - Image failed to load for', request.vessel?.name, ':', imageUrl);
+                            setImageError(true);
+                            setIsLoadingImage(false);
+                            
+                            // If direct URL failed and we haven't tried signed URL yet, try it
+                            const picture = request.vessel?.picture;
+                            if (picture && imageUrl === picture && picture.includes('s3.amazonaws.com')) {
+                                console.log('VesselCard - Attempting to fetch signed URL as fallback for:', picture);
+                                fetch(`/api/signed-url?url=${encodeURIComponent(picture)}`)
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        if (data.signedUrl) {
+                                            setImageUrl(data.signedUrl);
+                                            setIsLoadingImage(true);
+                                            setImageError(false);
+                                        }
+                                    })
+                                    .catch(err => {
+                                        console.error('VesselCard - Error fetching signed URL:', err);
+                                    });
+                            }
+                        }}
+                        loading="lazy"
                     />
                 ) : (
                     <div className="w-full h-full bg-gray-100 rounded-t-xl flex items-center justify-center">
                         <div className="text-gray-400 text-sm font-medium text-center">
-                            <div className="text-xs">{request.vessel?.name || 'Vessel'}</div>
+                            <div className="text-xs font-bold">{request.vessel?.name || 'Vessel'}</div>
+                            {isLoadingImage ? (
+                                <div className="text-xs text-gray-400 mt-1">Loading...</div>
+                            ) : !request.vessel?.picture ? (
+                                <div className="text-xs text-gray-400 mt-1">No image</div>
+                            ) : (
+                                <div className="text-xs text-gray-400 mt-1">Failed to load</div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -277,6 +316,7 @@ export default function BidDrydockPage() {
     const { user } = useAuth();
     const [drydockRequests, setDrydockRequests] = useState<DrydockRequest[]>([]);
     const [loading, setLoading] = useState(true);
+    const [dataLoaded, setDataLoaded] = useState(false);
     const [priorityFilter, setPriorityFilter] = useState('All');
     const [bidStatusFilter, setBidStatusFilter] = useState('All');
     const [statusFilter] = useState('All');
@@ -320,12 +360,19 @@ export default function BidDrydockPage() {
     const [shipyardServices, setShipyardServices] = useState<string[]>([]);
     const [shipyardServicesData, setShipyardServicesData] = useState<Array<{
         id: string;
-        name: string;
-        squareMeters: number;
-        hours: number;
-        workers: number;
-        days: number;
-        price: number;
+        name?: string;
+        service_name?: string;
+        squareMeters?: number;
+        square_meters?: number;
+        area?: number;
+        hours?: number;
+        work_hours?: number;
+        workers?: number;
+        worker_count?: number;
+        days?: number;
+        duration?: number;
+        price?: number;
+        unit_price?: number;
     }>>([]);
 
 
@@ -335,25 +382,25 @@ export default function BidDrydockPage() {
             const response = await fetch('/api/shipyard/drydock-requests');
             console.log('API response status:', response.status);
             
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('API response data:', data);
-                    console.log('Number of drydock requests:', data.drydockRequests?.length || 0);
-                    
-                    // Log all unique statuses and priority levels for debugging
-                    const statuses = [...new Set(data.drydockRequests?.map((r: { status: string }) => r.status) || [])];
-                    const priorities = [...new Set(data.drydockRequests?.map((r: { priority_level: string }) => r.priority_level) || [])];
-                    console.log('Available statuses:', statuses);
-                    console.log('Available priorities:', priorities);
-                    
-                    // Debug services data
-                    data.drydockRequests?.forEach((request: DrydockRequest, index: number) => {
-                        console.log(`Request ${index + 1} services_needed:`, request.services_needed);
-                        console.log(`Request ${index + 1} services_needed type:`, typeof request.services_needed);
-                    });
-                    
-                    setDrydockRequests(data.drydockRequests || []);
-                } else {
+            if (response.ok) {
+                const data = await response.json();
+                console.log('API response data:', data);
+                console.log('Number of drydock requests:', data.drydockRequests?.length || 0);
+                
+                // Log all unique statuses and priority levels for debugging
+                const statuses = [...new Set(data.drydockRequests?.map((r: { status: string }) => r.status) || [])];
+                const priorities = [...new Set(data.drydockRequests?.map((r: { priority_level: string }) => r.priority_level) || [])];
+                console.log('Available statuses:', statuses);
+                console.log('Available priorities:', priorities);
+                
+                // Debug services data
+                data.drydockRequests?.forEach((request: DrydockRequest, index: number) => {
+                    console.log(`Request ${index + 1} services_needed:`, request.services_needed);
+                    console.log(`Request ${index + 1} services_needed type:`, typeof request.services_needed);
+                });
+                
+                setDrydockRequests(data.drydockRequests || []);
+            } else {
                 console.error('API response not ok:', response.status, response.statusText);
             }
         } catch (error) {
@@ -382,6 +429,13 @@ export default function BidDrydockPage() {
         };
         fetchUserBids();
     }, []);
+
+    // Wait for all data to load before showing page
+    useEffect(() => {
+        if (!loading && drydockRequests.length >= 0 && shipyardServices.length >= 0) {
+            setDataLoaded(true);
+        }
+    }, [loading, drydockRequests.length, shipyardServices.length]);
 
     // Fetch bid statuses for all drydock requests
     useEffect(() => {
@@ -414,13 +468,38 @@ export default function BidDrydockPage() {
                     console.log('Services array:', data.services);
                     console.log('Number of services:', data.services?.length || 0);
                     
+                    // Log each service data structure
+                    if (data.services && data.services.length > 0) {
+                        console.log('First service example:', data.services[0]);
+                        console.log('Service data structure check:');
+                        data.services.forEach((service: {
+                            name?: string;
+                            service_name?: string;
+                            price?: number;
+                            squareMeters?: number;
+                            square_meters?: number;
+                            days?: number;
+                            hours?: number;
+                            workers?: number;
+                        }, index: number) => {
+                            console.log(`Service ${index + 1}:`, {
+                                name: service.name || service.service_name,
+                                price: service.price,
+                                squareMeters: service.squareMeters || service.square_meters,
+                                days: service.days,
+                                hours: service.hours,
+                                workers: service.workers
+                            });
+                        });
+                    }
+                    
                     // Store full service data
                     setShipyardServicesData(data.services || []);
                     // Extract service_name from each service object for display
-                    setShipyardServices((data.services || []).map((s: { service_name: string }) => s.service_name));
+                    setShipyardServices((data.services || []).map((s: { service_name: string, name: string }) => s.service_name || s.name));
                     
                     console.log('Stored shipyard services data:', data.services || []);
-                    console.log('Stored shipyard services names:', (data.services || []).map((s: { service_name: string }) => s.service_name));
+                    console.log('Stored shipyard services names:', (data.services || []).map((s: { service_name: string, name: string }) => s.service_name || s.name));
                 } else {
                     console.error('Failed to fetch shipyard services:', response.status);
                 }
@@ -543,12 +622,14 @@ export default function BidDrydockPage() {
         console.log('=== CALCULATION DEBUG ===');
         console.log('Selected services offered:', bidForm.servicesOffered);
         console.log('Shipyard services data:', shipyardServicesData);
+        console.log('Shipyard services names:', shipyardServicesData.map(s => s.name));
         
         const neededServices = getServicesWithArea(selectedRequest);
         console.log('=== NEEDED SERVICES DEBUG ===');
         console.log('Selected request:', selectedRequest);
         console.log('Needed services:', neededServices);
         console.log('Number of needed services:', neededServices.length);
+        console.log('Needed service names:', neededServices.map(s => s.name));
         
         const results = {
             services: [] as Array<{
@@ -580,29 +661,54 @@ export default function BidDrydockPage() {
         bidForm.servicesOffered.forEach(offeredService => {
             console.log(`\nProcessing offered service: "${offeredService}"`);
             
-            const matchingNeededService = neededServices.find(needed => 
+            // Find matching needed service - try exact match first, then partial match
+            let matchingNeededService = neededServices.find(needed => 
                 superNormalize(needed.name) === superNormalize(offeredService)
             );
+            
+            // If no exact match, try partial matching (contains)
+            if (!matchingNeededService) {
+                matchingNeededService = neededServices.find(needed => 
+                    superNormalize(needed.name).includes(superNormalize(offeredService)) ||
+                    superNormalize(offeredService).includes(superNormalize(needed.name))
+                );
+            }
             
             console.log('Matching needed service:', matchingNeededService);
 
             if (matchingNeededService) {
                 // Find the reference data from shipyard services database
-                const serviceData = shipyardServicesData.find(s => 
-                    superNormalize(s.name) === superNormalize(offeredService)
-                );
+                const serviceData = shipyardServicesData.find(s => {
+                    const serviceName = s.name || s.service_name;
+                    return superNormalize(serviceName) === superNormalize(offeredService) ||
+                           superNormalize(serviceName).includes(superNormalize(offeredService)) ||
+                           superNormalize(offeredService).includes(superNormalize(serviceName));
+                });
                 
                 console.log('Found service data:', serviceData);
 
                 if (serviceData) {
                     // Use the simplified formula with only 3 key values from database
-                    const refPrice = serviceData.price;        // Ref_Price
-                    const refSqM = serviceData.squareMeters;   // Ref_SqM  
-                    const refDays = serviceData.days;          // Ref_Days
+                    // Handle different possible field names
+                    const refPrice = Number(serviceData.price || serviceData.unit_price) || 0;        // Ref_Price
+                    const refSqM = Number(serviceData.squareMeters || serviceData.square_meters || serviceData.area) || 1;   // Ref_SqM (default to 1 to avoid division by zero)
+                    const refDays = Number(serviceData.days || serviceData.duration) || 1;          // Ref_Days (default to 1)
 
-                    const reqSqM = matchingNeededService.area || 0;
+                    const reqSqM = Number(matchingNeededService.area) || 0;
                     
                     console.log(`Calculation inputs: refPrice=${refPrice}, refSqM=${refSqM}, refDays=${refDays}, reqSqM=${reqSqM}`);
+                    console.log(`Service data object:`, serviceData);
+
+                    // Validate inputs before calculation
+                    if (refPrice <= 0 || refSqM <= 0 || refDays <= 0) {
+                        console.error(`Invalid service data for ${offeredService}:`, { refPrice, refSqM, refDays });
+                        toast({
+                            title: "Calculation Error",
+                            description: `Invalid service data for ${offeredService}. Please check your service configuration.`,
+                            variant: "destructive",
+                        });
+                        return;
+                    }
 
                     // Simple formula as specified
                     const unitPrice = refPrice / refSqM;                    // Unit Price = Ref_Price ÷ Ref_SqM
@@ -616,8 +722,8 @@ export default function BidDrydockPage() {
                         reqSqM: reqSqM,
                         refPrice: refPrice,
                         refSqM: refSqM,
-                        refHours: serviceData.hours,           // Keep for display
-                        refWorkers: serviceData.workers,       // Keep for display
+                        refHours: Number(serviceData.hours || serviceData.work_hours) || 0,           // Keep for display
+                        refWorkers: Number(serviceData.workers || serviceData.worker_count) || 0,       // Keep for display
                         refDays: refDays,
                         unitPrice: unitPrice,
                         workerHoursPerSqM: 0,                  // Not used in simple formula
@@ -637,46 +743,15 @@ export default function BidDrydockPage() {
             }
         });
 
-        // If no services were calculated, use test data to show the calculation works
+        // If no services were calculated, show error instead of test data
         if (results.services.length === 0) {
-            console.log('No services matched, using test calculation...');
-            
-            // Test calculation with example data
-            const testServices = [
-                {
-                    name: "Hull Cleaning",
-                    reqSqM: 30,
-                    refPrice: 100000,
-                    refSqM: 10,
-                    refHours: 10,
-                    refWorkers: 10,
-                    refDays: 10,
-                    unitPrice: 100000 / 10,
-                    workerHoursPerSqM: 0,
-                    serviceCost: (100000 / 10) * 30,
-                    totalWorkerHours: 0,
-                    serviceDays: 10 * (30 / 10)
-                },
-                {
-                    name: "Sandblasting", 
-                    reqSqM: 20,
-                    refPrice: 57000,
-                    refSqM: 10,
-                    refHours: 10,
-                    refWorkers: 10,
-                    refDays: 5,
-                    unitPrice: 57000 / 10,
-                    workerHoursPerSqM: 0,
-                    serviceCost: (57000 / 10) * 20,
-                    totalWorkerHours: 0,
-                    serviceDays: 5 * (20 / 10)
-                }
-            ];
-            
-            results.services = testServices;
-            results.subtotal = testServices.reduce((sum, service) => sum + service.serviceCost, 0);
-            maxServiceDays = Math.max(...testServices.map(s => s.serviceDays));
-            totalServiceDays = testServices.reduce((sum, service) => sum + service.serviceDays, 0);
+            console.log('No services matched - this indicates a data issue');
+            toast({
+                title: "Calculation Error",
+                description: "Unable to match selected services with vessel requirements. Please check your service data.",
+                variant: "destructive",
+            });
+            return;
         }
 
         console.log('Final results:', results);
@@ -882,8 +957,6 @@ export default function BidDrydockPage() {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
         doc.text(`Parallel Execution (Recommended): ${Math.round(results.maxServiceDays)} days`, 20, yPosition);
-        yPosition += 6;
-        doc.text(`Sequential Execution: ${Math.round(results.totalServiceDays)} days`, 20, yPosition);
         
         // Footer
         yPosition = 280;
@@ -893,37 +966,33 @@ export default function BidDrydockPage() {
         doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPosition + 5);
         
         try {
-            // Create blob and upload to S3
+            // Create blob and upload to S3 via proxy
             const pdfBlob = doc.output('blob');
             
-            // Get presigned URL for upload
-            const presignResponse = await fetch('/api/uploads/presign', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    fileType: 'application/pdf',
-                    prefix: 'bid-certificates'
-                }),
+            // Convert blob to File for FormData
+            const pdfFile = new File([pdfBlob], `bid-certificate-${Date.now()}.pdf`, {
+                type: 'application/pdf',
             });
-
-            if (!presignResponse.ok) {
-                throw new Error('Failed to get presigned URL');
-            }
-
-            const { url: presignedUrl, publicUrl } = await presignResponse.json();
-
-            // Upload PDF to S3
-            const uploadResponse = await fetch(presignedUrl, {
-                method: 'PUT',
-                body: pdfBlob,
-                headers: {
-                    'Content-Type': 'application/pdf',
-                },
+            
+            // Use proxy upload API to avoid CORS issues
+            const formData = new FormData();
+            formData.append('file', pdfFile);
+            formData.append('prefix', 'bid-certificates');
+            
+            const uploadResponse = await fetch('/api/uploads/upload', {
+                method: 'POST',
+                body: formData,
             });
 
             if (!uploadResponse.ok) {
+                const errorData = await uploadResponse.json().catch(() => ({ error: 'Unknown error' }));
+                console.error('Failed to upload PDF:', errorData);
+                throw new Error('Failed to upload PDF to S3');
+            }
+
+            const result = await uploadResponse.json();
+
+            if (!result.success || !result.url) {
                 throw new Error('Failed to upload PDF to S3');
             }
 
@@ -932,7 +1001,7 @@ export default function BidDrydockPage() {
                 description: "Bid certificate PDF generated and saved successfully!",
             });
 
-            return publicUrl;
+            return result.url;
         } catch (error) {
             console.error('Error generating/uploading PDF:', error);
             toast({
@@ -948,80 +1017,73 @@ export default function BidDrydockPage() {
     <SidebarProvider>
       <ShipyardSidebar />
       <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 md:px-4">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                                    <BreadcrumbLink href="/pages/shipyard">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Bid Drydock</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+        <AppHeader 
+          breadcrumbs={[
+            { label: "Dashboard", href: "/pages/shipyard" },
+            { label: "Bid Drydock", isCurrentPage: true }
+          ]} 
+        />
+        {loading || !dataLoaded ? (
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="flex flex-col items-center gap-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#134686]"></div>
+              <p className="text-sm text-gray-600">Loading drydock requests and data...</p>
+            </div>
           </div>
-          <div className="ml-auto">
-            <ProfileDropdown />
-          </div>
-        </header>
-        <div className="p-5 pt-0 mt-0">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <h1 className="text-xl md:text-xl font-bold text-[#134686]">Browse and Bid Drydock Request</h1>
-                            <p className="text-sm text-muted-foreground mt-1">Browse and select drydock requests to view information and bid on.</p>
-                        </div>
-                        <Button 
-                            onClick={() => {
-                                setLoading(true);
-                                fetchDrydockRequests();
-                            }}
-                            variant="outline"
-                        >
-                            Refresh
-                        </Button>
-                    </div>
+        ) : (
+          <>
+            <div className="p-5 pt-0 mt-0">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h1 className="text-lg md:text-xl font-bold text-[#134686]">Browse and Bid Drydock Request</h1>
+                  <p className="text-sm text-gray-500 mt-1">Browse and select drydock requests to view information and bid on.</p>
                 </div>
-                <div className="px-6 flex flex-row items-center gap-4 mb-0 mt-0">
-                    <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium">Filter by priority:</label>
-                        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                            <SelectTrigger className="w-[120px]">
-                                <SelectValue placeholder="Priority" />
-                            </SelectTrigger>
-                            <SelectContent className='bg-white border-gray-300'>
-                                <SelectItem value="All">All</SelectItem>
-                                <SelectItem value="NORMAL">Normal</SelectItem>
-                                <SelectItem value="EMERGENCY">Emergency</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                  
-                    <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium">Filter by bid status:</label>
-                        <Select value={bidStatusFilter} onValueChange={setBidStatusFilter}>
-                            <SelectTrigger className="w-[150px]">
-                                <SelectValue placeholder="Bid Status" />
-                            </SelectTrigger>
-                            <SelectContent className='bg-white border-gray-300'>
-                                <SelectItem value="All">All</SelectItem>
-                                <SelectItem value="Unbid">Not Yet Bidded</SelectItem>
-                                <SelectItem value="Bid">Already Bidded</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-                <div className="p-4">
-                    {loading ? (
-                        <div className="text-center py-8 text-gray-500">Loading drydock requests...</div>
-                    ) : drydockRequests.length === 0 ? (
+                <Button 
+                  onClick={() => {
+                    setLoading(true);
+                    fetchDrydockRequests();
+                  }}
+                  variant="outline"
+                >
+                  Refresh
+                </Button>
+              </div>
+            </div>
+            <div className="px-6 flex flex-row items-center gap-4 mb-0 mt-0">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium">Filter by priority:</label>
+                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent className='bg-white border-gray-300'>
+                    <SelectItem value="All">All</SelectItem>
+                    <SelectItem value="NORMAL">Normal</SelectItem>
+                    <SelectItem value="EMERGENCY">Emergency</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium">Filter by bid status:</label>
+                <Select value={bidStatusFilter} onValueChange={setBidStatusFilter}>
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue placeholder="Bid Status" />
+                  </SelectTrigger>
+                  <SelectContent className='bg-white border-gray-300'>
+                    <SelectItem value="All">All</SelectItem>
+                    <SelectItem value="Unbid">Not Yet Bidded</SelectItem>
+                    <SelectItem value="Bid">Already Bidded</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="p-4">
+              {drydockRequests.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
                             <div className="text-lg font-medium mb-2">No drydock requests found</div>
                             <div className="text-sm">There are currently no drydock requests available for bidding.</div>
-                            <div className="text-sm mt-2">Check back later or contact the system administrator.</div>
+
                         </div>
                     ) : filteredRequests.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
@@ -1043,8 +1105,10 @@ export default function BidDrydockPage() {
                                 />
                                 ))}
                         </div>
-                    )}
-        </div>
+              )}
+            </div>
+          </>
+        )}
       </SidebarInset>
             <Dialog open={openDialog} onOpenChange={setOpenDialog}>
                 <DialogContent className="!w-[900px] !max-w-[900px] h-[90vh] overflow-y-auto">
@@ -1399,10 +1463,6 @@ export default function BidDrydockPage() {
                                         <span className="text-sm font-medium text-gray-700">Parallel Crews (Recommended):</span>
                                         <span className="text-sm text-gray-900">{Math.round(calculationResults.maxServiceDays)} days</span>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-sm font-medium text-gray-700">Sequential Crews:</span>
-                                        <span className="text-sm text-gray-900">{Math.round(calculationResults.totalServiceDays)} days</span>
-                                    </div>
                                 </div>
                             </div>
                             
@@ -1434,20 +1494,7 @@ export default function BidDrydockPage() {
                                              </svg>
                                              <span className="text-sm text-gray-700">Bid Calculation Report</span>
                                          </div>
-                                         <Button 
-                                             variant="outline" 
-                                             size="sm"
-                                             onClick={async () => {
-                                                 // Generate and view PDF with calculation results
-                                                 const pdfUrl = await generatePDF(calculationResults);
-                                                 if (pdfUrl) {
-                                                     window.open(pdfUrl, '_blank');
-                                                 }
-                                             }}
-                                             className="text-xs"
-                                         >
-                                             Generate & View PDF
-                                         </Button>
+                                        
                                      </div>
                                  </div>
                              </div>
