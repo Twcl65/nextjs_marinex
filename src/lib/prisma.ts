@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 // Updated Prisma client with User and UserService models
 
 declare global {
@@ -10,14 +10,10 @@ declare global {
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
 // Configuration for serverless environments (Vercel)
-const prismaClientOptions = {
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  // Add connection timeout for serverless
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL,
-    },
-  },
+const prismaClientOptions: Prisma.PrismaClientOptions = {
+  log: process.env.NODE_ENV === 'development' 
+    ? ['query', 'error', 'warn'] as Prisma.LogLevel[]
+    : ['error'] as Prisma.LogLevel[],
 }
 
 export const prisma =
