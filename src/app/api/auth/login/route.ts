@@ -89,6 +89,25 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error('Login error:', error)
+    
+    // Provide more specific error messages
+    if (error instanceof Error) {
+      // Check if it's a Prisma initialization error
+      if (error.name === 'PrismaClientInitializationError' || error.message.includes('PrismaClient')) {
+        console.error('Prisma client initialization failed. Check DATABASE_URL environment variable.')
+        return NextResponse.json({ 
+          error: 'Database connection error. Please try again later.' 
+        }, { status: 500 })
+      }
+      
+      // Check if it's a database connection error
+      if (error.message.includes('Can\'t reach database server') || error.message.includes('P1001')) {
+        return NextResponse.json({ 
+          error: 'Database server is unreachable. Please try again later.' 
+        }, { status: 500 })
+      }
+    }
+    
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
