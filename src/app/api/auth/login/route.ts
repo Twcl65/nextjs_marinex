@@ -92,22 +92,51 @@ export async function POST(req: NextRequest) {
     
     // Provide more specific error messages
     if (error instanceof Error) {
+      const errorMessage = error.message
+      const errorName = error.name
+      
+      // Log detailed error for debugging in Vercel
+      console.error('Error details:', {
+        name: errorName,
+        message: errorMessage,
+        stack: error.stack,
+        hasDatabaseUrl: !!process.env.DATABASE_URL,
+        databaseUrlPrefix: process.env.DATABASE_URL?.substring(0, 20) + '...',
+      })
+      
       // Check if it's a Prisma initialization error
-      if (error.name === 'PrismaClientInitializationError' || error.message.includes('PrismaClient')) {
+      if (errorName === 'PrismaClientInitializationError' || errorMessage.includes('PrismaClient') || errorMessage.includes('P1001')) {
         console.error('Prisma client initialization failed. Check DATABASE_URL environment variable.')
         return NextResponse.json({ 
-          error: 'Database connection error. Please try again later.' 
+          error: 'Database connection error. Please try again later.',
+          details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
         }, { status: 500 })
       }
       
       // Check if it's a database connection error
-      if (error.message.includes('Can\'t reach database server') || error.message.includes('P1001')) {
+      if (errorMessage.includes('Can\'t reach database server') || 
+          errorMessage.includes('P1001') ||
+          errorMessage.includes('ECONNREFUSED') ||
+          errorMessage.includes('ETIMEDOUT') ||
+          errorMessage.includes('ENOTFOUND')) {
         return NextResponse.json({ 
-          error: 'Database server is unreachable. Please try again later.' 
+          error: 'Database server is unreachable. Please check your database configuration.',
+          details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+        }, { status: 500 })
+      }
+      
+      // Check for SSL/TLS errors
+      if (errorMessage.includes('SSL') || errorMessage.includes('TLS') || errorMessage.includes('certificate')) {
+        return NextResponse.json({ 
+          error: 'Database SSL connection error. Please check your DATABASE_URL includes SSL parameters.',
+          details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
         }, { status: 500 })
       }
     }
     
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+    return NextResponse.json({ 
+      error: 'Internal Server Error',
+      details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : undefined
+    }, { status: 500 })
   }
 }
