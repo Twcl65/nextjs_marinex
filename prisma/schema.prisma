@@ -5,6 +5,8 @@ generator client {
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
+  // Enable connection pooling for serverless environments
+  // The DATABASE_URL should include connection pool parameters
 }
 
 model User {
