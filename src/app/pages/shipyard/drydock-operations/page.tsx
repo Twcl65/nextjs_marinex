@@ -683,8 +683,8 @@ export default function DrydockOperationsPage() {
               {/* Vessel Cards */}
               {filteredBookings.length === 0 ? (
               <div className="text-center py-12">
-                <Ship className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No drydock operations found</h3>
+              
+                <h3 className="text-md font-medium text-gray-500 mb-2">No drydock operations found</h3>
                 <p className="text-gray-500">No confirmed bookings match your current filters.</p>
               </div>
             ) : (
@@ -817,7 +817,7 @@ export default function DrydockOperationsPage() {
                       </div>
                     ) : services.length === 0 ? (
                       <div className="text-center py-8">
-                        <Wrench className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                       
                         <p className="text-sm text-gray-500">No services found for this booking.</p>
                       </div>
                     ) : (

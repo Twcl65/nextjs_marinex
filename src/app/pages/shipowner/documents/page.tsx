@@ -10,12 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import { Eye, FileText, Download, ExternalLink, Plus } from "lucide-react"
+import { Eye, FileText, Download, ExternalLink, Plus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { DialogFooter } from "@/components/ui/dialog"
 
 interface Vessel {
   id: string
@@ -58,6 +60,9 @@ export default function ManageDocumentsPage() {
   const [vessels, setVessels] = useState<Vessel[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [rowsPerPage, setRowsPerPage] = useState(5)
   const [documents, setDocuments] = useState<Document[]>([])
   const [loadingDocuments, setLoadingDocuments] = useState(false)
   const [showDocumentsModal, setShowDocumentsModal] = useState(false)
@@ -70,6 +75,10 @@ export default function ManageDocumentsPage() {
     description: '',
     documentFile: null as File | null
   })
+  const [deleteMode, setDeleteMode] = useState(false)
+  const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
+  const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchVessels = useCallback(async () => {
     if (!token) {
@@ -207,6 +216,8 @@ export default function ManageDocumentsPage() {
   const handleViewDocuments = (vessel: Vessel) => {
     setSelectedVessel(vessel)
     setShowDocumentsModal(true)
+    setDeleteMode(false)
+    setSelectedDocuments(new Set())
     fetchDocuments(vessel.id)
   }
 
@@ -367,6 +378,115 @@ export default function ManageDocumentsPage() {
     })
   }
 
+  const handleToggleDeleteMode = () => {
+    setDeleteMode(!deleteMode)
+    setSelectedDocuments(new Set())
+  }
+
+  const handleToggleDocumentSelection = (documentId: string) => {
+    const newSelected = new Set(selectedDocuments)
+    if (newSelected.has(documentId)) {
+      newSelected.delete(documentId)
+    } else {
+      newSelected.add(documentId)
+    }
+    setSelectedDocuments(newSelected)
+  }
+
+  const handleDeleteDocuments = async () => {
+    if (selectedDocuments.size === 0) {
+      toast({
+        variant: "destructive",
+        title: "No Selection",
+        description: "Please select at least one document to delete",
+      })
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      if (!token) {
+        toast({
+          variant: "destructive",
+          title: "Authentication Required",
+          description: "You must be logged in to delete documents",
+        })
+        return
+      }
+
+      const deletePromises = Array.from(selectedDocuments).map(async (documentId) => {
+        const response = await fetch(`/api/shipowner/vessel-documents?documentId=${documentId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || 'Failed to delete document')
+        }
+
+        return response.json()
+      })
+
+      await Promise.all(deletePromises)
+
+      toast({
+        variant: "default",
+        title: "Success",
+        description: `Successfully deleted ${selectedDocuments.size} document(s)`,
+      })
+
+      // Refresh documents list
+      if (selectedVessel) {
+        fetchDocuments(selectedVessel.id)
+      }
+      // Refresh vessels list to update document count
+      fetchVessels()
+
+      // Reset delete mode
+      setDeleteMode(false)
+      setSelectedDocuments(new Set())
+      setShowDeleteConfirmDialog(false)
+    } catch (error) {
+      console.error('Error deleting documents:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete documents. Please try again.",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  // Filter and search functions
+  const filteredVessels = vessels.filter(vessel => {
+    const matchesSearch = searchTerm === "" || 
+      vessel.vesselName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vessel.imoNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vessel.shipType.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vessel.flag.toLowerCase().includes(searchTerm.toLowerCase())
+    
+    return matchesSearch
+  })
+
+  // Pagination
+  const totalPages = Math.ceil(filteredVessels.length / rowsPerPage)
+  const startIndex = (currentPage - 1) * rowsPerPage
+  const endIndex = startIndex + rowsPerPage
+  const currentVessels = filteredVessels.slice(startIndex, endIndex)
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  // Reset to first page when search term changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
+
   const getDocumentTypeBadgeColor = (type: string) => {
     switch (type.toLowerCase()) {
       case 'certificate':
@@ -392,25 +512,39 @@ export default function ManageDocumentsPage() {
             { label: "Manage Documents", isCurrentPage: true }
           ]} 
         />
-        <div className="p-3 md:p-4">
+        <div className="pl-5">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-[#134686]">Manage Documents</h1>
+            <h1 className="text-xl md:text-xl font-bold text-[#134686]">Manage Documents</h1>
             <p className="text-sm text-muted-foreground mt-1">View and manage documents sent to your vessels by shipowners and marinas.</p>
           </div>
         </div>
 
-        <div className="px-3 md:px-4 pb-4">
+        <div className="px-3 md:px-5 pb-0">
+          {/* Search Section */}
+          <div className="flex flex-wrap items-center gap-4 mb-5 mt-4">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Label htmlFor="search" className="text-xs font-normal whitespace-nowrap">Search:</Label>
+              <Input
+                id="search"
+                placeholder="Search by vessel name, IMO number, ship type, or flag..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full max-w-80"
+              />
+            </div>
+          </div>
+
           <div className="border border-gray-300 rounded-lg overflow-hidden">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[200px]">Vessel Name</TableHead>
-                  <TableHead className="w-[120px]">IMO Number</TableHead>
-                  <TableHead className="w-[100px]">Ship Type</TableHead>
-                  <TableHead className="w-[80px]">Flag</TableHead>
-                  <TableHead className="w-[100px]">Year Built</TableHead>
-                  <TableHead className="w-[120px] text-center">Document Count</TableHead>
-                  <TableHead className="w-[150px] text-center">Actions</TableHead>
+              <TableHeader className="bg-gray-50">
+                <TableRow className="align-middle h-4">
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[200px]">Vessel Name</TableHead>
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[120px]">IMO Number</TableHead>
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[100px]">Ship Type</TableHead>
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[80px]">Flag</TableHead>
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[100px]">Year Built</TableHead>
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[120px] text-center">Document Count</TableHead>
+                  <TableHead className="whitespace-nowrap py-2 h-12 w-[150px] text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -420,38 +554,39 @@ export default function ManageDocumentsPage() {
                       <p className="text-gray-600">Loading vessels...</p>
                     </TableCell>
                   </TableRow>
-                ) : vessels.length === 0 ? (
+                ) : filteredVessels.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8">
                       <div className="flex flex-col items-center gap-2">
                         
-                        <p className="text-gray-600">No vessels found</p>
-                        <p className="text-sm text-gray-500">You don&apos;t have any active vessels yet</p>
+                        <p className="text-sm text-gray-500">
+                          {searchTerm ? "No vessels match your search criteria" : "You don't have any active vessels yet"}
+                        </p>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  vessels.map((vessel) => (
-                    <TableRow key={vessel.id}>
-                      <TableCell className="font-medium">{vessel.vesselName}</TableCell>
-                      <TableCell>{vessel.imoNumber}</TableCell>
-                      <TableCell>{vessel.shipType}</TableCell>
-                      <TableCell>{vessel.flag}</TableCell>
-                      <TableCell>{vessel.yearOfBuild}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="outline" className="font-semibold">
-                          {vessel.documentCount}
+                  currentVessels.map((vessel) => (
+                    <TableRow key={vessel.id} className="align-middle h-6">
+                      <TableCell className="py-2 font-medium">{vessel.vesselName}</TableCell>
+                      <TableCell className="py-2">{vessel.imoNumber}</TableCell>
+                      <TableCell className="py-2">{vessel.shipType}</TableCell>
+                      <TableCell className="py-2">{vessel.flag}</TableCell>
+                      <TableCell className="py-2">{vessel.yearOfBuild}</TableCell>
+                      <TableCell className="py-2 text-center">
+                        <Badge className="font-semibold">
+                          {vessel.documentCount + ' Documents'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="py-2 text-center">
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant="secondary"
                           onClick={() => handleViewDocuments(vessel)}
                           disabled={vessel.documentCount === 0}
-                          className="gap-2"
+                          className="gap-2 h-7 px-3 text-xs cursor-pointer bg-gray-600 hover:bg-gray-700 text-white"
                         >
-                          <Eye className="h-4 w-4" />
+                          <FileText className="h-4 w-4" />
                           View Documents
                         </Button>
                       </TableCell>
@@ -461,30 +596,87 @@ export default function ManageDocumentsPage() {
               </TableBody>
             </Table>
           </div>
+
+          {/* Pagination Controls */}
+          {!loading && filteredVessels.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between text-sm px-0 mt-3">
+              <div className='text-sm text-gray-500'>
+                {filteredVessels.length === 0 ? '0' : `${startIndex + 1} - ${Math.min(endIndex, filteredVessels.length)}`} of {filteredVessels.length} row(s)
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Rows per page</span>
+                <select
+                  className="border rounded px-2 py-1"
+                  value={rowsPerPage}
+                  onChange={e => setRowsPerPage(Number(e.target.value))}
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+                <button
+                  className="h-8 w-8 flex items-center justify-center rounded hover:bg-gray-100 disabled:opacity-50"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  aria-label="Previous page"
+                  type="button"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="px-2">Page {currentPage} of {totalPages}</span>
+                <button
+                  className="h-8 w-8 flex items-center justify-center rounded hover:bg-gray-100 disabled:opacity-50"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  aria-label="Next page"
+                  type="button"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Documents Modal */}
-        <Dialog open={showDocumentsModal} onOpenChange={setShowDocumentsModal}>
+        <Dialog open={showDocumentsModal} onOpenChange={(open) => {
+          setShowDocumentsModal(open)
+          if (!open) {
+            // Reset delete mode when closing modal
+            setDeleteMode(false)
+            setSelectedDocuments(new Set())
+          }
+        }}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-xl font-bold text-[#134686]">
                 Documents for {selectedVessel?.vesselName}
               </DialogTitle>
-              <DialogDescription>
-                IMO Number: {selectedVessel?.imoNumber} | Total Documents: {documents.length}
-              </DialogDescription>
+              <p className="text-sm text-muted-foreground mt-0 pt-0 mb-2">
+                This is all the list of documents associated with this vessel.
+              </p>
+              <div className="flex items-center justify-between mt-2">
+                <Button
+                  onClick={handleAddDocument}
+                  className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                  variant="default"
+                  size="sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Document
+                </Button>
+                <Button
+                  onClick={handleToggleDeleteMode}
+                  className="gap-2 bg-red-600 hover:bg-red-700 text-white cursor-pointer"
+                  variant="default"
+                  size="sm"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deleteMode ? 'Cancel Delete' : 'Delete'}
+                </Button>
+              </div>
             </DialogHeader>
-
-            <div className="mb-0">
-              <Button
-                onClick={handleAddDocument}
-                className="gap-2 bg-[#134686] hover:bg-[#0f3a6b] text-white"
-                variant="default"
-              >
-                <Plus className="h-4 w-4" />
-                Add Document
-              </Button>
-            </div>
 
             {loadingDocuments ? (
               <div className="py-8 text-center">
@@ -492,17 +684,43 @@ export default function ManageDocumentsPage() {
               </div>
             ) : documents.length === 0 ? (
               <div className="py-8 text-center">
-                <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                <FileText className="h-12 w-12 text-gray-300 mx-auto mb-2" />
                 <p className="text-gray-600">No documents found for this vessel</p>
               </div>
             ) : (
-              <div className="space-y-4 mt-4">
+              <div className="space-y-4 mt-2">
+                {deleteMode && selectedDocuments.size > 0 && (
+                  <div className="flex items-center justify-between mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <span className="text-sm text-red-700 font-medium">
+                      {selectedDocuments.size} document(s) selected
+                    </span>
+                    <Button
+                      onClick={() => setShowDeleteConfirmDialog(true)}
+                      className="gap-2 bg-red-600 hover:bg-red-700 text-white"
+                      size="sm"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete Selected
+                    </Button>
+                  </div>
+                )}
                 {documents.map((document) => (
                   <div
                     key={document.id}
-                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    className={`border rounded-lg p-4 transition-colors ${
+                      deleteMode && selectedDocuments.has(document.id)
+                        ? 'border-red-500 bg-red-50'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-4">
+                      {deleteMode && (
+                        <Checkbox
+                          checked={selectedDocuments.has(document.id)}
+                          onCheckedChange={() => handleToggleDocumentSelection(document.id)}
+                          className="mt-1"
+                        />
+                      )}
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           <FileText className="h-5 w-5 text-gray-500" />
@@ -537,41 +755,73 @@ export default function ManageDocumentsPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {document.documentUrl ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDownloadDocument(document)}
-                              className="gap-2"
-                            >
-                              <Download className="h-4 w-4" />
-                              Download
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                handleDownloadDocument(document)
-                              }}
-                              className="gap-2"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                              View
-                            </Button>
-                          </>
-                        ) : (
-                          <Badge variant="outline" className="text-sm">
-                            {document.isCertificate ? 'Processing Certificate...' : 'No File Available'}
-                          </Badge>
-                        )}
-                      </div>
+                      {!deleteMode && (
+                        <div className="flex items-center gap-2">
+                          {document.documentUrl ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => handleDownloadDocument(document)}
+                                className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                              >
+                                <Download className="h-4 w-4" />
+                                Download
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => {
+                                  handleDownloadDocument(document)
+                                }}
+                                className="gap-2 bg-gray-800 hover:bg-gray-900 text-white cursor-pointer"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                                View
+                              </Button>
+                            </>
+                          ) : (
+                            <Badge variant="outline" className="text-sm">
+                              {document.isCertificate ? 'Processing Certificate...' : 'No File Available'}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={showDeleteConfirmDialog} onOpenChange={setShowDeleteConfirmDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Confirm Deletion</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete {selectedDocuments.size} selected document(s)? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirmDialog(false)}
+                disabled={isDeleting}
+                className="bg-gray-600 hover:bg-gray-700 text-white border-gray-600 cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                onClick={handleDeleteDocuments}
+                disabled={isDeleting}
+                className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+              >
+                {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
@@ -605,7 +855,7 @@ export default function ManageDocumentsPage() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select document type" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-white">
                     <SelectItem value="Certificate">Certificate</SelectItem>
                     <SelectItem value="Report">Report</SelectItem>
                     <SelectItem value="Plan">Plan</SelectItem>
@@ -661,7 +911,7 @@ export default function ManageDocumentsPage() {
                 <Button
                   onClick={handleSubmitDocument}
                   disabled={isSubmittingDocument}
-                  className="gap-2"
+                  className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
                 >
                   {isSubmittingDocument ? 'Uploading...' : 'Upload Document'}
                 </Button>

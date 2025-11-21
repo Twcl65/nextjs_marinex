@@ -329,7 +329,7 @@ export default function VesselRecertificationsPage() {
           <div className="mb-4">
             <Button 
               onClick={() => setShowRequestModal(true)}
-              className="bg-[#134686] text-white hover:bg-gray-800 mb-4"
+              className="bg-green-600 text-white hover:bg-green-700 mb-4"
             >
              
               Request Certificate
@@ -384,7 +384,7 @@ export default function VesselRecertificationsPage() {
             <TableSkeleton />
           ) : recertifications.length === 0 ? (
             <div className="text-center py-8">
-              <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+  
               <p className="text-gray-600">No recertification requests found</p>
               <p className="text-sm text-gray-500 mt-1">Your vessel recertification requests will appear here</p>
             </div>

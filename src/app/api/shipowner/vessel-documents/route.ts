@@ -331,38 +331,69 @@ export async function POST(request: NextRequest) {
     let documentUrl: string | null = null
     
     if (documentFile && documentFile.size > 0) {
-      const bucketName = process.env.AWS_S3_BUCKET
-      if (!bucketName) {
+      try {
+        const bucketName = process.env.AWS_S3_BUCKET
+        if (!bucketName) {
+          console.error('AWS_S3_BUCKET environment variable is not set')
+          return NextResponse.json(
+            { error: 'File upload configuration error: S3 bucket not configured' },
+            { status: 500 }
+          )
+        }
+
+        const fileExtension = documentFile.name.split('.').pop() || 'pdf'
+        const fileName = `vessel-documents/${user.userId}/${vesselId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExtension}`
+        
+        console.log('Uploading document to S3:', { fileName, fileSize: documentFile.size, fileType: documentFile.type })
+        
+        const uploadCommand = new PutObjectCommand({
+          Bucket: bucketName,
+          Key: fileName,
+          Body: Buffer.from(await documentFile.arrayBuffer()),
+          ContentType: documentFile.type || 'application/octet-stream',
+        })
+
+        await s3Client.send(uploadCommand)
+        documentUrl = `https://${bucketName}.s3.${process.env.AWS_REGION || 'ap-southeast-2'}.amazonaws.com/${fileName}`
+        console.log('Document uploaded successfully to S3:', documentUrl)
+      } catch (s3Error) {
+        console.error('Error uploading file to S3:', s3Error)
         return NextResponse.json(
-          { error: 'File upload configuration error' },
+          { error: `Failed to upload file to S3: ${s3Error instanceof Error ? s3Error.message : 'Unknown error'}` },
           { status: 500 }
         )
       }
-
-      const fileExtension = documentFile.name.split('.').pop()
-      const fileName = `vessel-documents/${user.userId}/${vesselId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExtension}`
-      
-      const uploadCommand = new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fileName,
-        Body: Buffer.from(await documentFile.arrayBuffer()),
-        ContentType: documentFile.type,
-        ACL: 'public-read',
-      })
-
-      await s3Client.send(uploadCommand)
-      documentUrl = `https://${bucketName}.s3.${process.env.AWS_REGION || 'ap-southeast-2'}.amazonaws.com/${fileName}`
     }
 
     // Create document in database
-    const documentId = crypto.randomUUID()
-    await prisma.$executeRaw`
-      INSERT INTO user_documents (
-        id, vesselId, senderId, documentType, documentName, documentUrl, description, createdAt, updatedAt
-      ) VALUES (
-        ${documentId}, ${vesselId}, ${user.userId}, ${documentType}, ${documentName}, ${documentUrl}, ${description || null}, NOW(), NOW()
+    if (!documentUrl) {
+      return NextResponse.json(
+        { error: 'Document URL is missing after upload' },
+        { status: 500 }
       )
-    `
+    }
+
+    const documentId = crypto.randomUUID()
+    
+    try {
+      console.log('Inserting document into database:', { documentId, vesselId, senderId: user.userId, documentName })
+      
+      await prisma.$executeRaw`
+        INSERT INTO user_documents (
+          id, vesselId, senderId, documentType, documentName, documentUrl, description, createdAt, updatedAt
+        ) VALUES (
+          ${documentId}, ${vesselId}, ${user.userId}, ${documentType}, ${documentName}, ${documentUrl}, ${description || null}, NOW(), NOW()
+        )
+      `
+      
+      console.log('Document successfully inserted into database:', documentId)
+    } catch (dbError) {
+      console.error('Error inserting document into database:', dbError)
+      return NextResponse.json(
+        { error: `Failed to save document to database: ${dbError instanceof Error ? dbError.message : 'Unknown error'}` },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       success: true,
@@ -381,6 +412,77 @@ export async function POST(request: NextRequest) {
     console.error('Error creating document:', error)
     return NextResponse.json(
       { error: 'Failed to create document' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(request)
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const { searchParams } = new URL(request.url)
+    const documentId = searchParams.get('documentId')
+
+    if (!documentId) {
+      return NextResponse.json(
+        { error: 'documentId is required' },
+        { status: 400 }
+      )
+    }
+
+    // Get the document to verify it exists and belongs to the user
+    const document = await prisma.$queryRawUnsafe<Array<{
+      id: string
+      vesselId: string
+      senderId: string
+      documentUrl: string | null
+    }>>(
+      `SELECT id, vesselId, senderId, documentUrl FROM user_documents WHERE id = ? LIMIT 1`,
+      documentId
+    )
+
+    if (!document || document.length === 0) {
+      return NextResponse.json(
+        { error: 'Document not found' },
+        { status: 404 }
+      )
+    }
+
+    const doc = document[0]
+
+    // Verify that the document belongs to the current user
+    if (doc.senderId !== user.userId) {
+      return NextResponse.json(
+        { error: 'Access denied. You can only delete your own documents.' },
+        { status: 403 }
+      )
+    }
+
+    // Delete document from database
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM user_documents WHERE id = ?`,
+      documentId
+    )
+
+    console.log('Document deleted successfully:', documentId)
+
+    return NextResponse.json({
+      success: true,
+      message: 'Document deleted successfully'
+    })
+
+  } catch (error) {
+    console.error('Error deleting document:', error)
+    return NextResponse.json(
+      { error: 'Failed to delete document' },
       { status: 500 }
     )
   }

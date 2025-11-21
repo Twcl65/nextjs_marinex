@@ -664,7 +664,7 @@ export default function ViewBookingsPage() {
             <div className="border border-gray-300 rounded-lg overflow-x-auto w-full mb-3">
               <Table className="w-full min-w-[600px]">
                 <TableHeader>
-                  <TableRow className="align-middle h-4">
+                  <TableRow className="align-middle h-4 bg-gray-50">
                     <TableHead className="whitespace-nowrap py-0 h-11 min-w-[120px]">Vessel</TableHead>
                     <TableHead className="whitespace-nowrap py-0 h-11 min-w-[150px]">Company</TableHead>
                     <TableHead className="whitespace-nowrap py-0 h-11 min-w-[100px]">IMO</TableHead>
@@ -733,7 +733,7 @@ export default function ViewBookingsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:text-white h-7 px-3 text-xs whitespace-nowrap"
+                            className="bg-blue-600 cursor-pointer text-white border-blue-600 hover:bg-blue-700 hover:text-white h-7 px-3 text-xs whitespace-nowrap"
                             onClick={() => handleEditBooking(booking)}
                           >
                             View Information

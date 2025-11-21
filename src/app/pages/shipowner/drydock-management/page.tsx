@@ -1080,7 +1080,7 @@ export default function DrydockManagementPage() {
           ]} 
         />
         <div className="px-5 pt-0 mt-0">
-          <h1 className="text-lg md:text-2xl font-bold text-[#134686]">Drydock Management</h1>
+          <h1 className="text-lg md:text-xl font-bold text-[#134686]">Drydock Management</h1>
           <p className="text-sm text-gray-500 mt-1">Plan and track drydock schedules and tasks.</p>
           <Button 
             className="mt-4 bg-green-600 hover:bg-green-700/90 text-white cursor-pointer"
@@ -1701,8 +1701,8 @@ export default function DrydockManagementPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredShipyards.map((shipyard, index) => (
-                      <div key={shipyard.bidId} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-                        <div className="flex items-start gap-3 mb-3">
+                      <div key={shipyard.bidId} className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm min-h-[280px]">
+                        <div className="flex items-start gap-4 mb-4">
                           {/* Shipyard Logo */}
                           <div className="flex-shrink-0">
                             <ShipyardLogo 
@@ -1716,11 +1716,11 @@ export default function DrydockManagementPage() {
                             <div className="flex items-center justify-between">
                               <div>
                                 <p className="text-xs text-gray-500 mb-1">Shipyard Name</p>
-                                <h3 className="font-bold text-sm text-gray-900 truncate">{shipyard.shipyardName}</h3>
+                                <h3 className="font-bold text-base text-gray-900 truncate">{shipyard.shipyardName}</h3>
                               </div>
                               <div className="text-right">
-                                <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
-                                  <span className="text-xs font-medium text-gray-600">{index + 1}</span>
+                                <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
+                                  <span className="text-sm font-medium text-gray-600">{index + 1}</span>
                                 </div>
                               </div>
                             </div>
@@ -1728,20 +1728,20 @@ export default function DrydockManagementPage() {
                         </div>
                         
                         {/* Bid Details */}
-                        <div className="space-y-2 mb-3">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-600">Total Bid:</span>
-                            <span className="text-sm font-bold text-green-600">₱{shipyard.totalBid.toLocaleString('en-PH')}</span>
+                        <div className="space-y-3 mb-4">
+                          <div className="flex justify-between items-center py-1">
+                            <span className="text-sm text-gray-600">Total Bid:</span>
+                            <span className="text-base font-bold text-green-600">₱{shipyard.totalBid.toLocaleString('en-PH')}</span>
                           </div>
                           
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-600">Duration:</span>
-                            <span className="text-xs text-gray-900">{shipyard.totalDays} days</span>
+                          <div className="flex justify-between items-center py-1">
+                            <span className="text-sm text-gray-600">Duration:</span>
+                            <span className="text-sm text-gray-900 font-medium">{shipyard.totalDays} days</span>
                           </div>
                           
-                          <div className="flex justify-between items-start">
-                            <span className="text-xs text-gray-600">Services Offered:</span>
-                            <span className="text-xs text-gray-900 text-right max-w-[120px] leading-tight">
+                          <div className="flex justify-between items-start py-1">
+                            <span className="text-sm text-gray-600">Services Offered:</span>
+                            <span className="text-sm text-gray-900 text-right max-w-[140px] leading-relaxed">
                               {shipyard.servicesOffered && Array.isArray(shipyard.servicesOffered) 
                                 ? shipyard.servicesOffered.map((service: Record<string, unknown>) => service.name || service).join(', ')
                                 : 'N/A'
@@ -1749,9 +1749,9 @@ export default function DrydockManagementPage() {
                             </span>
                           </div>
                           
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-600">Bid Date:</span>
-                            <span className="text-xs text-gray-900">
+                          <div className="flex justify-between items-center py-1">
+                            <span className="text-sm text-gray-600">Bid Date:</span>
+                            <span className="text-sm text-gray-900 font-medium">
                               {new Date(shipyard.bidDate).toLocaleDateString('en-US', {
                                 year: 'numeric',
                                 month: '2-digit',
