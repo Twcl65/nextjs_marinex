@@ -13,6 +13,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { NotificationDropdown } from "@/components/NotificationDropdown"
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -442,7 +443,8 @@ export default function ShipyardBiddingPage() {
               </BreadcrumbList>
             </Breadcrumb>
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <NotificationDropdown />
             <ProfileDropdown />
           </div>
         </header>
@@ -512,7 +514,7 @@ export default function ShipyardBiddingPage() {
                         <div className="border border-gray-300 rounded-lg overflow-hidden">
                             <div className="overflow-x-auto">
                                 <Table>
-                                <TableHeader>
+                                <TableHeader className="bg-gray-50">
                                     <TableRow>
                                         <TableHead className="min-w-[150px] py-3">Company</TableHead>
                                         <TableHead className="min-w-[200px] py-3">Vessel</TableHead>
@@ -526,12 +528,12 @@ export default function ShipyardBiddingPage() {
                                 <TableBody>
                                     {currentRequests.map((request) => (
                                         <TableRow key={request.id}>
-                                            <TableCell className="py-2">
+                                            <TableCell className="py-3">
                                                 <span className="text-sm text-gray-600 truncate block max-w-[150px]" title={request.company_name || 'N/A'}>
                                                     {request.company_name || 'N/A'}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="font-medium py-2">
+                                            <TableCell className="font-medium py-3">
                                                 {request.vessel?.name || 'Unnamed Vessel'}
                                                 {request.vessel?.imo_number && (
                                                     <span className="font-normal text-gray-500 text-sm">
@@ -539,7 +541,7 @@ export default function ShipyardBiddingPage() {
                                                     </span>
                                                 )}
                                             </TableCell>
-                                            <TableCell className="py-2">
+                                            <TableCell className="py-3">
                                                 <Badge 
                                                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                                                         request.priority_level === 'NORMAL' ? 'bg-green-100 text-green-700' : 
@@ -552,7 +554,7 @@ export default function ShipyardBiddingPage() {
                                                      request.priority_level}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="py-2">
+                                            <TableCell className="py-3">
                                                 <span className="text-sm text-gray-600 truncate block max-w-[200px]" title={getNormalizedNeededServices(request).join(', ')}>
                                                     {getNormalizedNeededServices(request).length > 0 ? (
                                                         getNormalizedNeededServices(request).map(service => service.replace(/\s*-\s*\d+$/, '')).join(', ')
@@ -561,12 +563,12 @@ export default function ShipyardBiddingPage() {
                                                     )}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="py-2">
+                                            <TableCell className="py-3">
                                                 <span className="text-sm text-gray-600">
                                                     {request.request_date ? new Date(request.request_date).toLocaleDateString() : 'N/A'}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="py-2">
+                                            <TableCell className="py-3">
                                                 <Badge 
                                                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                                                         request.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
@@ -582,16 +584,19 @@ export default function ShipyardBiddingPage() {
                                                      request.status}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="py-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="bg-[#134686] text-white border-[#134686] hover:bg-[#0f3a6e] cursor-pointer hover:text-white h-8 w-8 p-0"
-                                                    title="View Bidders"
-                                                    onClick={() => handleViewBidders(request)}
-                                                >
-                                                    <Users className="h-4 w-4" />
-                                                </Button>
+                                            <TableCell className="py-3">
+                                                {request.status === 'COMPLETED' ? (
+                                                    <span className="text-sm text-gray-600">Closed</span>
+                                                ) : (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="bg-[#134686] text-white border-[#134686] hover:bg-[#0f3a6e] cursor-pointer hover:text-white h-8 px-3"
+                                                        onClick={() => handleViewBidders(request)}
+                                                    >
+                                                        View Bidders
+                                                    </Button>
+                                                )}
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -659,107 +664,10 @@ export default function ShipyardBiddingPage() {
                     
                     {selectedRequest && (
                         <div className="space-y-4">
-                             {/* Request Details */}
-                             <div className=" p-0 rounded-lg">
-                               
-                                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                                     <Table>
-                                         <TableHeader>
-                                             <TableRow>
-                                                 <TableHead className="py-2">Vessel Name</TableHead>
-                                                 <TableHead className="py-2">Company</TableHead>
-                                                 <TableHead className="py-2">Services Needed</TableHead>
-                                                 <TableHead className="py-2">Priority</TableHead>
-                                                 <TableHead className="py-2">Status</TableHead>
-                                                 <TableHead className="py-2">Attached File</TableHead>
-                                             </TableRow>
-                                         </TableHeader>
-                                         <TableBody>
-                                             <TableRow>
-                                                 <TableCell className="py-2 font-medium">
-                                                     {selectedRequest.vessel?.name}
-                                                     {selectedRequest.vessel?.imo_number && (
-                                                         <span className="text-xs text-gray-500 text-sm block">
-                                                             (IMO: {selectedRequest.vessel.imo_number})
-                                                         </span>
-                                                     )}
-                                                 </TableCell>
-                                                 <TableCell className="py-2">
-                                                     {selectedRequest.company_name || 'N/A'}
-                                                 </TableCell>
-                                                 <TableCell className="py-2">
-                                                     {getNormalizedNeededServices(selectedRequest).length > 0 ? (
-                                                         <span className="text-sm">
-                                                             {getNormalizedNeededServices(selectedRequest)
-                                                                 .map(service => service.replace(/\s*-\s*\d+$/, ''))
-                                                                 .join(', ')}
-                                                         </span>
-                                                     ) : (
-                                                         <span className="text-gray-500 text-sm">No services specified</span>
-                                                     )}
-                                                 </TableCell>
-                                                 <TableCell className="py-2">
-                                                     <Badge 
-                                                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                                                             selectedRequest.priority_level === 'NORMAL' ? 'bg-green-100 text-green-700' : 
-                                                             selectedRequest.priority_level === 'EMERGENCY' ? 'bg-red-100 text-red-700' : 
-                                                             'bg-gray-100 text-gray-700'
-                                                         }`}
-                                                     >
-                                                         {selectedRequest.priority_level === 'NORMAL' ? 'Normal' : 
-                                                          selectedRequest.priority_level === 'EMERGENCY' ? 'Emergency' : 
-                                                          selectedRequest.priority_level}
-                                                     </Badge>
-                                                 </TableCell>
-                                                 <TableCell className="py-2">
-                                                     <Badge 
-                                                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                                                             selectedRequest.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
-                                                             selectedRequest.status === 'CANCELLED' ? 'bg-red-100 text-red-700' :
-                                                             selectedRequest.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
-                                                             'bg-yellow-100 text-yellow-700'
-                                                         }`}
-                                                     >
-                                                         {selectedRequest.status === 'PENDING' ? 'Pending' :
-                                                          selectedRequest.status === 'IN_PROGRESS' ? 'In Progress' :
-                                                          selectedRequest.status === 'COMPLETED' ? 'Completed' :
-                                                          selectedRequest.status === 'CANCELLED' ? 'Cancelled' :
-                                                          selectedRequest.status}
-                                                     </Badge>
-                                                 </TableCell>
-                                                 <TableCell className="py-2">
-                                                     {selectedRequest.scope_of_work ? (
-                                                         <button
-                                                             onClick={async () => {
-                                                                 try {
-                                                                     const response = await fetch(`/api/signed-url?url=${encodeURIComponent(selectedRequest.scope_of_work || '')}`);
-                                                                     const data = await response.json();
-                                                                     if (data.signedUrl) {
-                                                                         window.open(data.signedUrl, '_blank');
-                                                                     } else {
-                                                                         console.error('Failed to get signed URL');
-                                                                     }
-                                                                 } catch (error) {
-                                                                     console.error('Error accessing document:', error);
-                                                                 }
-                                                             }}
-                                                             className="text-blue-600 hover:text-blue-800 underline text-sm cursor-pointer"
-                                                         >
-                                                             View Document
-                                                         </button>
-                                                     ) : (
-                                                         <span className="text-gray-500 text-sm">No file attached</span>
-                                                     )}
-                                                 </TableCell>
-                                             </TableRow>
-                                         </TableBody>
-                                     </Table>
-                                 </div>
-                             </div>
-
+                            
                             {/* Bidders Table */}
                             <div className="space-y-3">
-                                <h3 className="font-semibold text-gray-900">Shipyard Bidders</h3>
+                               
                                 {loadingBidders ? (
                                     <div className="text-center py-8 text-gray-500">Loading bidders...</div>
                                 ) : bidders.length === 0 ? (

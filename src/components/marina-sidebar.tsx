@@ -1,14 +1,14 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { 
   LayoutDashboard,
   Stamp,
   Gavel,
   BadgeCheck,
   RefreshCcw,
-  Users
+  Users,
+  Ship
 } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
@@ -34,6 +34,11 @@ const marinaNavData = {
       icon: LayoutDashboard,
     },
     {
+      title: "Monitor Certifications",
+      url: "/pages/marina/monitor-certifications",
+      icon: BadgeCheck,
+    },
+    {
       title: "Authority Approvals",
       url: "/pages/marina/authority-approvals",
       icon: Stamp,
@@ -42,11 +47,6 @@ const marinaNavData = {
       title: "Shipyard Bidding",
       url: "/pages/marina/shipyard-bidding",
       icon: Gavel,
-    },
-    {
-      title: "Monitor Certifications",
-      url: "/pages/marina/monitor-certifications",
-      icon: BadgeCheck,
     },
     {
       title: "Vessel Recertifications",
@@ -72,13 +72,9 @@ export function MarinaSidebar({ ...props }: React.ComponentProps<typeof Sidebar>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="h-14" asChild>
               <a href="/pages/marina">
-                <Image 
-                  src="/assets/marinex_logo.png" 
-                  alt="Marinex Logo" 
-                  width={32} 
-                  height={32}
-                  className="rounded-full"
-                />
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#134686]">
+                  <Ship className="h-5 w-5 text-white" />
+                </div>
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-medium">
                     {user?.fullName || user?.shipyardName || user?.email || "Marine Authority"}

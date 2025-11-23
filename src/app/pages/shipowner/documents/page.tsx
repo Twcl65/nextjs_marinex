@@ -656,26 +656,28 @@ export default function ManageDocumentsPage() {
               <p className="text-sm text-muted-foreground mt-0 pt-0 mb-2">
                 This is all the list of documents associated with this vessel.
               </p>
-              <div className="flex items-center justify-between mt-2">
-                <Button
-                  onClick={handleAddDocument}
-                  className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
-                  variant="default"
-                  size="sm"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Document
-                </Button>
-                <Button
-                  onClick={handleToggleDeleteMode}
-                  className="gap-2 bg-red-600 hover:bg-red-700 text-white cursor-pointer"
-                  variant="default"
-                  size="sm"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {deleteMode ? 'Cancel Delete' : 'Delete'}
-                </Button>
-              </div>
+              {!loadingDocuments && (
+                <div className="flex items-center justify-between mt-2">
+                  <Button
+                    onClick={handleAddDocument}
+                    className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                    variant="default"
+                    size="sm"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Document
+                  </Button>
+                  <Button
+                    onClick={handleToggleDeleteMode}
+                    className="gap-2 bg-red-600 hover:bg-red-700 text-white cursor-pointer"
+                    variant="default"
+                    size="sm"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deleteMode ? 'Cancel' : ''}
+                  </Button>
+                </div>
+              )}
             </DialogHeader>
 
             {loadingDocuments ? (

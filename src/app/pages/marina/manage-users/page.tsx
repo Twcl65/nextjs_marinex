@@ -4,6 +4,7 @@ import { MarinaSidebar } from "@/components/marina-sidebar"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { NotificationDropdown } from "@/components/NotificationDropdown"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -918,7 +919,8 @@ Marinex Authority Team
               </BreadcrumbList>
             </Breadcrumb>
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <NotificationDropdown />
             <ProfileDropdown />
           </div>
         </header>
@@ -973,7 +975,7 @@ Marinex Authority Team
           {/* Table Container - Responsive */}
           <div className="border border-gray-300 rounded-lg overflow-hidden w-full mb-3">
             <Table className="w-full">
-              <TableHeader>
+              <TableHeader className="bg-gray-50">
                 <TableRow className="align-middle h-4">
                   <TableHead className="whitespace-nowrap py-0 h-11 w-16">Logo</TableHead>
                   <TableHead className="whitespace-nowrap py-0 h-11 min-w-[120px]">Name</TableHead>

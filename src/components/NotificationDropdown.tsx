@@ -69,8 +69,18 @@ export function NotificationDropdown() {
 
       if (response.ok) {
         const data = await response.json()
-        setNotifications(data.notifications || [])
-        setUnreadCount(data.unreadCount || 0)
+        const allNotifications = data.notifications || []
+        setNotifications(allNotifications)
+        
+        // Only count unread notifications from today
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const todayUnreadCount = allNotifications.filter((n: Notification) => {
+          const notificationDate = new Date(n.createdAt)
+          notificationDate.setHours(0, 0, 0, 0)
+          return !n.isRead && notificationDate.getTime() === today.getTime()
+        }).length
+        setUnreadCount(todayUnreadCount)
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.error('Failed to fetch notifications:', errorData.error || 'Unknown error')
@@ -154,7 +164,8 @@ export function NotificationDropdown() {
   }
 
   const { today: todayNotifications, otherDays: otherDaysNotifications } = getNotificationsByDay()
-  const allNotifications = [...todayNotifications, ...otherDaysNotifications]
+  // Only use today's notifications for display
+  const allNotifications = todayNotifications
 
   // Function to mark notification as read
   const markAsRead = useCallback(async (notificationId: string) => {
@@ -165,11 +176,23 @@ export function NotificationDropdown() {
         return
       }
 
-      // Optimistically update UI
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
-      )
-      setUnreadCount((prev) => (prev > 0 ? prev - 1 : 0))
+      // Optimistically update UI and recalculate today's unread count
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      setNotifications((prev) => {
+        const updated = prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
+        
+        // Recalculate today's unread count
+        const todayUnreadCount = updated.filter((n) => {
+          const notificationDate = new Date(n.createdAt)
+          notificationDate.setHours(0, 0, 0, 0)
+          return !n.isRead && notificationDate.getTime() === today.getTime()
+        }).length
+        setUnreadCount(todayUnreadCount)
+        
+        return updated
+      })
 
       const response = await fetch('/api/mc-notifications', {
         method: 'PATCH',
@@ -263,7 +286,7 @@ export function NotificationDropdown() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="relative h-8 w-8 p-0 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+          className="relative h-8 w-8 p-0 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none cursor-pointer"
         >
           <Bell className="h-5 w-5 text-gray-700" />
           {unreadCount > 0 && (
@@ -289,16 +312,14 @@ export function NotificationDropdown() {
             <div className="px-4 py-8 text-center">
               <div className="text-sm text-gray-500">Loading...</div>
             </div>
-          ) : allNotifications.length === 0 ? (
+          ) : todayNotifications.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <div className="text-sm text-gray-500">No notifications for today.</div>
             </div>
           ) : (
             <div className="py-2">
               {/* Today's Notifications */}
-              {todayNotifications.length > 0 && (
-                <>
-                  {todayNotifications.slice(0, 5).map((notification) => (
+              {todayNotifications.map((notification) => (
                     <div
                       key={notification.id}
                       className={`px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors ${
@@ -340,56 +361,6 @@ export function NotificationDropdown() {
                       </div>
                     </div>
                   ))}
-                </>
-              )}
-              
-              {/* Other Days Notifications */}
-              {todayNotifications.length < 5 && otherDaysNotifications.length > 0 && (
-                <>
-                  {otherDaysNotifications.slice(0, 5 - todayNotifications.length).map((notification) => (
-                    <div
-                      key={notification.id}
-                      className={`px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors ${
-                        !notification.isRead ? 'bg-blue-50' : ''
-                      }`}
-                      onClick={async () => {
-                        // Mark as read immediately when clicked
-                        if (!notification.isRead) {
-                          await markAsRead(notification.id)
-                        }
-                        setSelectedNotification(notification)
-                        setShowNotificationDialog(true)
-                        setIsOpen(false)
-                      }}
-                    >
-                      <div className="flex items-start gap-3">
-                        {!notification.isRead && (
-                          <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className={`text-sm font-medium mb-1 ${
-                            notification.isRead ? 'text-gray-500' : 'text-gray-900'
-                          }`}>
-                            {notification.title}
-                          </div>
-                          <div className={`text-xs line-clamp-2 ${
-                            notification.isRead ? 'text-gray-400' : 'text-gray-600'
-                          }`}>
-                            {notification.message.replace(/\*\*/g, '').substring(0, 100)}
-                            {notification.message.length > 100 ? '...' : ''}
-                          </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            {new Date(notification.createdAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
             </div>
           )}
         </div>
@@ -401,7 +372,7 @@ export function NotificationDropdown() {
               setIsOpen(false)
               setShowAllDialog(true)
             }}
-            className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 text-center transition-colors"
+            className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 text-center transition-colors cursor-pointer"
           >
             View all notifications
           </button>

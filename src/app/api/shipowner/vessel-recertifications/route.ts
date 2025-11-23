@@ -4,8 +4,11 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 
 const prisma = new PrismaClient()
 
+const region = process.env.AWS_REGION || 'ap-southeast-2'
+const bucket = process.env.AWS_S3_BUCKET
+
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'ap-southeast-2',
+  region,
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
@@ -114,29 +117,51 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Handle file uploads to S3
+    // Handle file uploads to S3 (with ACL fallback for buckets that don't allow ACLs)
     const uploadFileToS3 = async (file: File | null, prefix: string) => {
       if (!file || file.size === 0) return null
       
-      const bucketName = process.env.AWS_S3_BUCKET
-      if (!bucketName) {
+      if (!bucket) {
         console.error('AWS_S3_BUCKET environment variable is not set')
         return null
       }
 
       const fileExtension = file.name.split('.').pop()
       const fileName = `vessel-recertifications/${userId}/${prefix}-${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExtension}`
-      
-      const uploadCommand = new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fileName,
-        Body: Buffer.from(await file.arrayBuffer()),
-        ContentType: file.type,
-        ACL: 'public-read',
-      })
+      const buffer = Buffer.from(await file.arrayBuffer())
 
-      await s3Client.send(uploadCommand)
-      return `https://${bucketName}.s3.${process.env.AWS_REGION || 'ap-southeast-2'}.amazonaws.com/${fileName}`
+      // Try with ACL first, fallback if ACLs are disabled
+      try {
+        const cmd = new PutObjectCommand({
+          Bucket: bucket,
+          Key: fileName,
+          Body: buffer,
+          ContentType: file.type || 'application/octet-stream',
+          ACL: 'public-read', // Try to make it public
+        })
+        await s3Client.send(cmd)
+        console.log(`[Recertification] ${prefix} uploaded with public-read ACL`)
+      } catch (aclError: unknown) {
+        console.warn(`[Recertification] ACL upload failed for ${prefix}, trying without ACL:`, aclError)
+        
+        // Retry without ACL (bucket policy might handle public access)
+        try {
+          const cmd = new PutObjectCommand({
+            Bucket: bucket,
+            Key: fileName,
+            Body: buffer,
+            ContentType: file.type || 'application/octet-stream',
+            // No ACL - rely on bucket policy
+          })
+          await s3Client.send(cmd)
+          console.log(`[Recertification] ${prefix} uploaded without ACL (using bucket policy)`)
+        } catch (noAclError: unknown) {
+          console.error(`[Recertification] Failed to upload ${prefix}:`, noAclError)
+          return null
+        }
+      }
+
+      return `https://${bucket}.s3.${region}.amazonaws.com/${fileName}`
     }
 
     const [vesselPlansUrl, drydockReportUrl, drydockCertificateUrl, safetyCertificateUrl] = await Promise.all([
@@ -170,8 +195,18 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error creating vessel recertification:', error)
+    
+    // Provide more specific error messages
+    let errorMessage = 'Failed to create vessel recertification request'
+    if (error instanceof Error) {
+      errorMessage = error.message || errorMessage
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to create vessel recertification request' },
+      { 
+        success: false,
+        error: errorMessage 
+      },
       { status: 500 }
     )
   }

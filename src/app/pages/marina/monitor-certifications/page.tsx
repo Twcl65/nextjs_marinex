@@ -12,6 +12,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { ProfileDropdown } from "@/components/ProfileDropdown"
+import { NotificationDropdown } from "@/components/NotificationDropdown"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -22,6 +23,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Checkbox } from "@/components/ui/checkbox"
 import { Bell, Mail, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { useState, useEffect } from "react"
+import { useToast } from "@/hooks/use-toast"
+import { Toaster } from "@/components/ui/toaster"
 
 // Helper function for initials
 const getInitialsHelper = (name: string | null) => {
@@ -104,6 +107,7 @@ interface VesselResponse {
 }
 
 export default function MonitorCertificationsPage() {
+  const { toast } = useToast()
   const [vessels, setVessels] = useState<Vessel[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -132,14 +136,45 @@ export default function MonitorCertificationsPage() {
         search,
         status,
         page: currentPage.toString(),
-        limit: "5"
+        limit: "100" // Get more to sort properly
       })
       
       const response = await fetch(`/api/vessels?${params}`)
       const data: VesselResponse = await response.json()
       
-      setVessels(data.vessels)
-      setPagination(data.pagination)
+      // Sort vessels: non-notified first (by expiration nearest to farthest), then notified (by expiration nearest to farthest)
+      const sortedVessels = [...data.vessels].sort((a, b) => {
+        // First, separate notified and non-notified
+        if (a.isNotified !== b.isNotified) {
+          return a.isNotified ? 1 : -1 // Non-notified first
+        }
+        
+        // For same notification status, sort by expiration date (nearest to farthest)
+        const aExpiry = a.vesselCertificationExpiry ? new Date(a.vesselCertificationExpiry).getTime() : Infinity
+        const bExpiry = b.vesselCertificationExpiry ? new Date(b.vesselCertificationExpiry).getTime() : Infinity
+        
+        // Handle null dates - put them at the end
+        if (aExpiry === Infinity && bExpiry === Infinity) return 0
+        if (aExpiry === Infinity) return 1
+        if (bExpiry === Infinity) return -1
+        
+        return aExpiry - bExpiry // Nearest expiration first
+      })
+      
+      // Apply pagination after sorting
+      const itemsPerPage = 5
+      const paginatedVessels = sortedVessels.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+      )
+      
+      setVessels(paginatedVessels)
+      setPagination({
+        page: currentPage,
+        limit: itemsPerPage,
+        total: sortedVessels.length,
+        totalPages: Math.ceil(sortedVessels.length / itemsPerPage)
+      })
     } catch (error) {
       console.error("Error fetching vessels:", error)
     } finally {
@@ -196,6 +231,20 @@ export default function MonitorCertificationsPage() {
     setDialogOpen(true)
   }
 
+  const handleSelectAll = () => {
+    const allSelected = requirements.drydockReport && 
+                       requirements.drydockCertificate && 
+                       requirements.safetyCertificate && 
+                       requirements.vesselPlans
+    
+    setRequirements({
+      drydockReport: !allSelected,
+      drydockCertificate: !allSelected,
+      safetyCertificate: !allSelected,
+      vesselPlans: !allSelected
+    })
+  }
+
   const handleNotifySubmit = async () => {
     if (!selectedVessel) return
 
@@ -224,16 +273,35 @@ export default function MonitorCertificationsPage() {
       })
 
       if (response.ok) {
+        const result = await response.json()
         setDialogOpen(false)
+        
+        // Show success toast notification
+        toast({
+          variant: "success",
+          title: "Notification Sent Successfully",
+          description: result.smsSent 
+            ? "The shipowner has been notified through the MARINEX system and SMS."
+            : "The shipowner has been notified through the MARINEX system."
+        })
+        
         // Refresh vessels to update the status
         fetchVessels()
       } else {
         const error = await response.json()
-        alert(error.error || "Failed to send notification")
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error.error || "Failed to send notification"
+        })
       }
     } catch (error) {
       console.error("Error sending notification:", error)
-      alert("Failed to send notification")
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An unexpected error occurred while sending the notification"
+      })
     } finally {
       setSubmitting(false)
     }
@@ -260,7 +328,7 @@ export default function MonitorCertificationsPage() {
             </Breadcrumb>
           </div>
           <div className="ml-auto flex items-center gap-2">
-         
+            <NotificationDropdown />
             <ProfileDropdown />
           </div>
         </header>
@@ -304,11 +372,11 @@ export default function MonitorCertificationsPage() {
           </div>
 
           {/* Vessel Certifications Table */}
-          <div className="border rounded-xs">
+          <div className="border rounded-lg overflow-hidden">
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-gray-50">
                 <TableRow className="h-8 [&_th]:py-2">
-                  <TableHead>Company</TableHead>
+                  <TableHead className="rounded-tl-lg">Company</TableHead>
                   <TableHead>Vessel Name</TableHead>
                   <TableHead>IMO Number</TableHead>
                   <TableHead>Ship Type</TableHead>
@@ -317,28 +385,29 @@ export default function MonitorCertificationsPage() {
                     Vessel Expiration
                     <ChevronUp className="h-3 w-3" />
                   </TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="rounded-tr-lg">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-5">
+                    <TableCell colSpan={7} className="text-center py-5 rounded-bl-lg rounded-br-lg">
                       Loading vessels...
                     </TableCell>
                   </TableRow>
                 ) : vessels.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-5">
+                    <TableCell colSpan={7} className="text-center py-5 rounded-bl-lg rounded-br-lg">
                       No vessels found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  vessels.map((vessel) => {
+                  vessels.map((vessel, index) => {
                     const expiryStatus = getExpiryStatus(vessel.vesselCertificationExpiry)
+                    const isLastRow = index === vessels.length - 1
                     return (
                       <TableRow key={vessel.id} className="h-13 [&_td]:py-1">
-                        <TableCell>
+                        <TableCell className={isLastRow ? "rounded-bl-lg" : ""}>
                           <div className="flex items-center gap-3">
                             <CompanyLogo logoUrl={vessel.user.logoUrl} companyName={vessel.user.fullName || "Unknown Company"} />
                             <span className="font-medium">{vessel.user.fullName || "Unknown Company"}</span>
@@ -353,18 +422,18 @@ export default function MonitorCertificationsPage() {
                             {formatDate(vessel.vesselCertificationExpiry)}
                           </span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className={isLastRow ? "rounded-br-lg" : ""}>
                           {vessel.isNotified ? (
                             <span className="inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md bg-green-100 text-green-800">
                               Notified
                             </span>
                           ) : (
                             <Button 
-                              size="icon" 
-                              className="bg-[#134686] text-white hover:bg-[#0f3a6b] h-7 w-7"
+                              className="bg-red-500 text-white hover:bg-red-700 h-7 px-3 gap-2 cursor-pointer"
                               onClick={() => handleNotifyClick(vessel)}
                             >
                               <Bell className="h-3 w-3" />
+                              <span className="text-sm">Notify</span>
                             </Button>
                           )}
                         </TableCell>
@@ -434,65 +503,97 @@ export default function MonitorCertificationsPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">
-              <div className="mb-4">
-                <h3 className="text-sm font-semibold mb-3">Requirements Needed</h3>
+              <div className="mb-0">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">Requirements Needed</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSelectAll}
+                    className="text-xs h-7 px-3 cursor-pointer"
+                  >
+                    {requirements.drydockReport && 
+                     requirements.drydockCertificate && 
+                     requirements.safetyCertificate && 
+                     requirements.vesselPlans
+                      ? "Deselect All"
+                      : "Select All"}
+                  </Button>
+                </div>
                 <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
+                  <div 
+                    className="flex items-center space-x-3 p-3 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setRequirements({ ...requirements, drydockReport: !requirements.drydockReport })}
+                  >
                     <Checkbox
                       id="drydock-report"
                       checked={requirements.drydockReport}
                       onCheckedChange={(checked) =>
                         setRequirements({ ...requirements, drydockReport: checked === true })
                       }
+                      className="cursor-pointer"
                     />
                     <label
                       htmlFor="drydock-report"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm font-medium leading-none cursor-pointer flex-1"
                     >
                       Drydock Report
                     </label>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div 
+                    className="flex items-center space-x-3 p-3 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setRequirements({ ...requirements, drydockCertificate: !requirements.drydockCertificate })}
+                  >
                     <Checkbox
                       id="drydock-certificate"
                       checked={requirements.drydockCertificate}
                       onCheckedChange={(checked) =>
                         setRequirements({ ...requirements, drydockCertificate: checked === true })
                       }
+                      className="cursor-pointer"
                     />
                     <label
                       htmlFor="drydock-certificate"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm font-medium leading-none cursor-pointer flex-1"
                     >
                       Drydock Certificate
                     </label>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div 
+                    className="flex items-center space-x-3 p-3 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setRequirements({ ...requirements, safetyCertificate: !requirements.safetyCertificate })}
+                  >
                     <Checkbox
                       id="safety-certificate"
                       checked={requirements.safetyCertificate}
                       onCheckedChange={(checked) =>
                         setRequirements({ ...requirements, safetyCertificate: checked === true })
                       }
+                      className="cursor-pointer"
                     />
                     <label
                       htmlFor="safety-certificate"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm font-medium leading-none cursor-pointer flex-1"
                     >
                       Safety Certificate
                     </label>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div 
+                    className="flex items-center space-x-3 p-3 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setRequirements({ ...requirements, vesselPlans: !requirements.vesselPlans })}
+                  >
                     <Checkbox
                       id="vessel-plans"
                       checked={requirements.vesselPlans}
                       onCheckedChange={(checked) =>
                         setRequirements({ ...requirements, vesselPlans: checked === true })
                       }
+                      className="cursor-pointer"
                     />
                     <label
                       htmlFor="vessel-plans"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm font-medium leading-none cursor-pointer flex-1"
                     >
                       Vessel Plans
                     </label>
@@ -511,13 +612,14 @@ export default function MonitorCertificationsPage() {
               <Button
                 onClick={handleNotifySubmit}
                 disabled={submitting}
-                className="bg-black text-white hover:bg-black/90"
+                className="bg-[#134686] text-white hover:bg-[#134686]/90 cursor-pointer"
               >
                 {submitting ? "Sending..." : "Notify"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <Toaster />
       </SidebarInset>
     </SidebarProvider>
   )

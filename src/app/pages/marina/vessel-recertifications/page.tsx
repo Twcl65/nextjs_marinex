@@ -263,7 +263,7 @@ export default function VesselRecertifications() {
                             </Button>
                         </div>
                         <Table className="border border-gray-200 rounded-sm">
-                            <TableHeader>
+                            <TableHeader className="bg-gray-50">
                                 <TableRow className="border-b border-border rounded-sm">
                                     <TableHead>Company</TableHead>
                                     <TableHead>IMO Number</TableHead>

@@ -190,10 +190,142 @@ Best regards,
       )
     `
 
+    // Send SMS notification if user has contact number
+    let smsSent = false
+    let smsError = null
+    
+    if (vessel.user.contactNumber) {
+      try {
+        // Format phone number (handle formats like: 09166879159, +639166879159, 9166879159)
+        let phoneNumber = vessel.user.contactNumber.trim().replace(/\s+/g, '')
+        
+        // Remove any non-digit characters except +
+        phoneNumber = phoneNumber.replace(/[^\d+]/g, '')
+        
+        // Handle different phone number formats
+        if (phoneNumber.startsWith('+63')) {
+          // Already in international format: +639166879159
+          // Just validate it has 10 digits after +63
+          const digits = phoneNumber.substring(3)
+          if (digits.length !== 10) {
+            throw new Error(`Invalid phone number length: ${phoneNumber}. Expected 10 digits after +63`)
+          }
+        } else if (phoneNumber.startsWith('63') && phoneNumber.length === 12) {
+          // Format: 639166879159 (missing +)
+          phoneNumber = `+${phoneNumber}`
+        } else if (phoneNumber.startsWith('0') && phoneNumber.length === 11) {
+          // Format: 09166879159 (local format with leading 0)
+          phoneNumber = phoneNumber.substring(1) // Remove leading 0
+          phoneNumber = `+63${phoneNumber}`
+        } else if (phoneNumber.length === 10 && /^9\d{9}$/.test(phoneNumber)) {
+          // Format: 9166879159 (10 digits starting with 9)
+          phoneNumber = `+63${phoneNumber}`
+        } else {
+          throw new Error(`Invalid phone number format: ${vessel.user.contactNumber}. Supported formats: 09166879159, 9166879159, +639166879159`)
+        }
+
+        // Final validation: should be +63 followed by exactly 10 digits
+        if (!/^\+63\d{10}$/.test(phoneNumber)) {
+          throw new Error(`Invalid phone number format after processing: ${phoneNumber}. Expected format: +639123456789`)
+        }
+
+        console.log(`Formatted phone number: ${vessel.user.contactNumber} -> ${phoneNumber}`)
+
+        // Create SMS message matching the notification format (professional and detailed)
+        const requirementsListSms = requirements.map((req, index) => `${index + 1}. ${req}`).join('\n')
+        
+        const smsMessage = `Dear ${companyName},
+
+We would like to inform you that your vessel, ${vesselName}, certification is nearing its expiration date. To remain in compliance with maritime regulations, please proceed with the necessary drydocking and submit the following requirements as soon as possible:
+
+Requirements:
+${requirementsListSms}
+
+If you have any questions or need assistance, feel free to contact us.
+
+Thank you for your prompt attention.
+
+Best regards,
+Maritime Industry Authority`
+
+        // Send SMS using TextBee.dev API
+        const textbeeApiKey = process.env.TEXTBEE_API_KEY || 'ceedf0f3-b0b3-43e4-af6a-aa5a2745f4c1'
+        const textbeeDeviceId = process.env.TEXTBEE_DEVICE_ID || '69232a9382033f1609eb65b1'
+        
+        const textbeeApiUrl = `https://api.textbee.dev/api/v1/gateway/devices/${textbeeDeviceId}/send-sms`
+
+        console.log('Sending SMS via TextBee.dev to:', phoneNumber)
+        console.log('TextBee Device ID:', textbeeDeviceId)
+        console.log('TextBee API URL:', textbeeApiUrl)
+
+        const smsResponse = await fetch(textbeeApiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': textbeeApiKey,
+          },
+          body: JSON.stringify({
+            recipients: [phoneNumber],
+            message: smsMessage,
+          }),
+        })
+
+        console.log('SMS API Response Status:', smsResponse.status)
+        
+        // Get response text first (can only read once)
+        const responseText = await smsResponse.text()
+        console.log('SMS API Response Text:', responseText)
+
+        // Check if response is OK
+        if (!smsResponse.ok) {
+          console.error('SMS API HTTP Error:', smsResponse.status, responseText)
+          smsError = `HTTP ${smsResponse.status}: ${responseText.substring(0, 200)}`
+        } else {
+          // Try to parse JSON response
+          try {
+            const smsResult = JSON.parse(responseText)
+            console.log('SMS API Response (parsed):', smsResult)
+
+            // TextBee.dev typically returns success in response data
+            if (smsResult.success || smsResult.status === 'success' || smsResponse.ok) {
+              smsSent = true
+              console.log('SMS sent successfully via TextBee.dev:', smsResult)
+            } else {
+              smsError = smsResult.error || smsResult.message || 'Failed to send SMS'
+              console.error('SMS API error:', smsError)
+            }
+          } catch (parseError) {
+            console.error('Failed to parse SMS API response as JSON:', parseError)
+            console.error('Response text:', responseText)
+            // If it's not JSON but status is OK, might still be successful
+            if (smsResponse.ok && responseText.toLowerCase().includes('success')) {
+              smsSent = true
+              console.log('SMS appears to be sent (non-JSON success response)')
+            } else {
+              smsError = `Invalid response format: ${responseText.substring(0, 200)}`
+            }
+          }
+        }
+      } catch (error) {
+        smsError = error instanceof Error ? error.message : 'Unknown SMS error'
+        console.error('Error sending SMS:', error)
+        // Don't fail the notification if SMS fails
+      }
+    } else {
+      console.log('SMS not sent: User does not have a contact number')
+      console.log('User object:', { 
+        userId: vessel.user.id, 
+        fullName: vessel.user.fullName,
+        contactNumber: vessel.user.contactNumber 
+      })
+    }
+
     return NextResponse.json({
       success: true,
       notificationId,
-      message: "Notification created successfully"
+      message: "Notification created successfully",
+      smsSent,
+      ...(smsError && { smsError })
     }, { status: 201 })
 
   } catch (error) {

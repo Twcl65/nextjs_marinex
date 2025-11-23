@@ -518,7 +518,7 @@ export default function DrydockOperationPage() {
                 </Button>
               </div>
               
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-gray-50">
+              <div className="border border-gray-300 rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow className="align-middle bg-gray-50">

@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/contexts/AuthContext"
+import { useToast } from "@/hooks/use-toast"
 import { Plus, Search, X, ChevronLeft, ChevronRight, FileText, Download } from "lucide-react"
 
 interface Vessel {
@@ -86,6 +87,7 @@ const TableSkeleton = () => (
 
 export default function VesselRecertificationsPage() {
   const { user, isLoading: authLoading } = useAuth()
+  const { toast } = useToast()
   const [recertifications, setRecertifications] = useState<Recertification[]>([])
   const [vessels, setVessels] = useState<Vessel[]>([])
   const [loading, setLoading] = useState(true)
@@ -210,7 +212,12 @@ export default function VesselRecertificationsPage() {
 
       const data = await response.json()
       
-      if (data.success) {
+      if (response.ok && data.success) {
+        toast({
+          variant: "success",
+          title: "Success",
+          description: data.message || "Vessel recertification request submitted successfully"
+        })
         setShowRequestModal(false)
         setFormData({
           companyName: "",
@@ -224,10 +231,21 @@ export default function VesselRecertificationsPage() {
         setSelectedVessel(null)
         fetchRecertifications()
       } else {
-        console.error('Error submitting request:', data.error)
+        const errorMessage = data.error || data.message || 'Failed to create vessel recertification request'
+        console.error('Error submitting request:', errorMessage)
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: errorMessage
+        })
       }
     } catch (error) {
       console.error('Error submitting request:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "An unexpected error occurred while submitting the request"
+      })
     } finally {
       setSubmitting(false)
     }
