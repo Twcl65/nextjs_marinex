@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
       shipyardContactPerson: string | null;
       shipyardBusinessReg: string | null;
       shipyardLogoUrl: string | null;
-      servicesOffered: any;
+      servicesOffered: string | unknown;
       certificateBuilder: string | null;
       certificateRepair: string | null;
       certificateOther: string | null;

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 // Get region from environment or extract from URL
 const getRegionFromUrl = (url: string): string => {
@@ -55,7 +54,7 @@ const extractBucketAndKey = (s3Url: string): { bucket: string; key: string } | n
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
-    let pdfUrl = searchParams.get('url')
+    const pdfUrl = searchParams.get('url')
     
     if (!pdfUrl) {
       return NextResponse.json({ error: 'URL parameter is required' }, { status: 400 })

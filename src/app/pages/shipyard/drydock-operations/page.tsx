@@ -1155,7 +1155,7 @@ export default function DrydockOperationsPage() {
                           </div>
                         ) : (
                           <div className="text-sm text-gray-600">
-                            <p>Progress entries already exist for this level. Select "Add Update" from the history panel to log another update.</p>
+                            <p>Progress entries already exist for this level. Select &quot;Add Update&quot; from the history panel to log another update.</p>
                             <Button
                               className="mt-4 border-[#134686] text-[#134686]"
                               variant="outline"
