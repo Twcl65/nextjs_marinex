@@ -345,13 +345,7 @@ export default function VesselRecertificationsPage() {
         
         <div className="p-5 pt-0">
           <div className="mb-4">
-            <Button 
-              onClick={() => setShowRequestModal(true)}
-              className="bg-green-600 text-white hover:bg-green-700 mb-4"
-            >
-             
-              Request Certificate
-            </Button>
+            
             <div>
               <div className="text-xl font-bold text-[#134686] mb-1">Vessel Recertification</div>
               <div className="text-sm text-gray-500">Below are your vessel recertification requests and their status.</div>
@@ -361,6 +355,13 @@ export default function VesselRecertificationsPage() {
           {/* Filter Section */}
           <div className="flex items-center gap-4 mb-4">
             <div className="flex items-center gap-2">
+            <Button 
+              onClick={() => setShowRequestModal(true)}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+             
+              Request Certificate
+            </Button>
               <Label htmlFor="status-filter" className="font-semibold">Status:</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-32">
@@ -522,7 +523,7 @@ export default function VesselRecertificationsPage() {
             </DialogHeader>
             
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto min-h-0">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-0">
                 {/* Left Column */}
                 <div className="space-y-4">
                   <div>

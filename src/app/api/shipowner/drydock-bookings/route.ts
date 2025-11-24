@@ -145,8 +145,6 @@ export async function GET(req: NextRequest) {
             db_bid.shipyardName,
             db_bid.totalBid,
             db_bid.totalDays,
-            db_bid.parallelDays,
-            db_bid.sequentialDays,
             db_bid.status as bidStatus,
             db_bid.servicesOffered,
             db_bid.serviceCalculations,
@@ -184,8 +182,6 @@ export async function GET(req: NextRequest) {
             db_bid.shipyardName,
             db_bid.totalBid,
             db_bid.totalDays,
-            db_bid.parallelDays,
-            db_bid.sequentialDays,
             db_bid.status as bidStatus,
             db_bid.servicesOffered,
             db_bid.serviceCalculations,
@@ -225,8 +221,6 @@ export async function GET(req: NextRequest) {
         shipyardName: string;
         totalBid: number;
         totalDays: number;
-        parallelDays: number;
-        sequentialDays: number;
         bidStatus: string;
         servicesOffered: Record<string, unknown>;
         serviceCalculations: Record<string, unknown>;
@@ -256,8 +250,6 @@ export async function GET(req: NextRequest) {
         shipyardName: booking.shipyardName,
         totalBid: booking.totalBid,
         totalDays: booking.totalDays,
-        parallelDays: booking.parallelDays,
-        sequentialDays: booking.sequentialDays,
         bidStatus: booking.bidStatus,
         servicesOffered: booking.servicesOffered,
         serviceCalculations: booking.serviceCalculations,

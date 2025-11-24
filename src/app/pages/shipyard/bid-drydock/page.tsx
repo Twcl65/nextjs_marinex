@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog as ConfirmDialog, DialogContent as ConfirmDialogContent, DialogHeader as ConfirmDialogHeader, DialogTitle as ConfirmDialogTitle, DialogFooter as ConfirmDialogFooter, DialogDescription as ConfirmDialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { CalendarCheck } from 'lucide-react';
+import { CalendarCheck, Loader2 } from 'lucide-react';
 import Image from "next/image";
 import jsPDF from 'jspdf';
 
@@ -46,9 +46,104 @@ interface DrydockRequest {
 
 interface BidForm {
     servicesOffered: string[];
-    startDate?: string;
-    endDate?: string;
     unitCost: string;
+}
+
+interface ServiceCalculation {
+    name: string;
+    reqSqM: number;
+    refPrice: number;
+    refSqM: number;
+    refHours: number;
+    refWorkers: number;
+    refDays: number;
+    unitPrice: number;
+    workerHoursPerSqM: number;
+    serviceCost: number;
+    totalWorkerHours: number;
+    serviceDays: number;
+    materialsCost: number;
+    laborCost: number;
+    equipmentCost: number;
+}
+
+interface AdditionalCostItem {
+    name: string;
+    amount: number;
+    description?: string;
+}
+
+interface PricingBreakdown {
+    currency: string;
+    perService: Array<{
+        name: string;
+        materialsCost: number;
+        laborCost: number;
+        equipmentCost: number;
+        totalCost: number;
+    }>;
+    totals: {
+        materials: number;
+        labor: number;
+        equipment: number;
+        subtotal: number;
+    };
+    notes?: string;
+}
+
+interface ScheduleDetails {
+    totalDays: number;
+    startDate?: string | null;
+    endDate?: string | null;
+    dockingWindow?: {
+        docking?: string | null;
+        undocking?: string | null;
+    };
+    penalties?: {
+        liquidatedDamagesRate: number;
+        description: string;
+    };
+}
+
+interface ContractConditions {
+    paymentTerms: string[];
+    insuranceAndLiability: string;
+    warranty: string;
+    qualityAssurance: string;
+    hse: string[];
+}
+
+interface TaxesAndFees {
+    vat: {
+        rate: number;
+        includedInTotal: boolean;
+        note: string;
+    };
+    portCharges: string;
+    importDuties: string;
+    otherPayments: Array<{ name: string; detail: string }>;
+}
+
+interface AdditionalCosts {
+    items: AdditionalCostItem[];
+    incidentalNote: string;
+    total: number;
+}
+
+interface CalculationResults {
+    services: ServiceCalculation[];
+    subtotal: number;
+    contingency: number;
+    finalBid: number;
+    totalDurationDays: number;
+    pricingBreakdown: PricingBreakdown;
+    scheduleDetails: ScheduleDetails;
+    contractConditions: ContractConditions;
+    taxesAndFees: TaxesAndFees;
+    additionalCosts: AdditionalCosts;
+    requiredDocumentation: string[];
+    bidDocumentUrl?: string | null;
+    grandTotal: number;
 }
 
 
@@ -247,7 +342,7 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                 </div>
                 {request.request_date && (
                     <div className="absolute bottom-2 right-2 z-10">
-                        <Badge variant="secondary" className="shadow bg-gray-500 text-white px-2 py-0.5 text-[10px] flex items-center gap-1">
+                        <Badge variant="secondary" className="shadow bg-yellow-500 text-white px-2 py-0.5 text-[10px] flex items-center gap-1">
                             <CalendarCheck className="w-3 h-3 mr-1" />
                             {new Date(request.request_date).toLocaleDateString()}
                         </Badge>
@@ -282,13 +377,20 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                     <div className="w-full text-left mt-1">
                         <span className="font-semibold text-gray-700">Services Needed:</span>
                         <div className="mt-1">
-                            {getNormalizedNeededServices(request).length > 0 ? (
-                                <span className="text-xs text-gray-700">
-                                    {getNormalizedNeededServices(request).map(service => service.replace(/\s*-\s*\d+$/, '')).join(', ')}
-                                </span>
-                            ) : (
-                                <span className="text-gray-400 text-xs">No services specified</span>
-                            )}
+                            {(() => {
+                                const services = getNormalizedNeededServices(request).map(service => service.replace(/\s*-\s*\d+$/, ''))
+                                if (services.length === 0) {
+                                    return <span className="text-gray-400 text-xs">No services specified</span>
+                                }
+                                const displayServices = services.slice(0, 2)
+                                const remainingCount = services.length - 2
+                                return (
+                                    <span className="text-xs text-gray-700">
+                                        {displayServices.join(', ')}
+                                        {remainingCount > 0 && ` +${remainingCount} more`}
+                                    </span>
+                                )
+                            })()}
                         </div>
                     </div>
                 </div>
@@ -324,8 +426,6 @@ export default function BidDrydockPage() {
     const [openBidDialog, setOpenBidDialog] = useState(false);
     const [bidForm, setBidForm] = useState<BidForm>({
         servicesOffered: [],
-        startDate: '',
-        endDate: '',
         unitCost: ''
     });
     const [selectedRequest, setSelectedRequest] = useState<DrydockRequest | null>(null);
@@ -333,28 +433,7 @@ export default function BidDrydockPage() {
     // const [showBidConfirm] = useState(false);
     const [showCalculationDialog, setShowCalculationDialog] = useState(false);
     const [showFormulaDialog, setShowFormulaDialog] = useState(false);
-    const [calculationResults, setCalculationResults] = useState<{
-        services: Array<{
-            name: string;
-            reqSqM: number;
-            refPrice: number;
-            refSqM: number;
-            refHours: number;
-            refWorkers: number;
-            refDays: number;
-            unitPrice: number;
-            workerHoursPerSqM: number;
-            serviceCost: number;
-            totalWorkerHours: number;
-            serviceDays: number;
-        }>;
-        subtotal: number;
-        contingency: number;
-        finalBid: number;
-        projectDuration: number;
-        maxServiceDays: number;
-        totalServiceDays: number;
-    } | null>(null);
+    const [calculationResults, setCalculationResults] = useState<CalculationResults | null>(null);
     const [userBids, setUserBids] = useState<{ drydock_request_id: string }[]>([]);
     const [bidStatuses, setBidStatuses] = useState<{ [key: string]: boolean }>({});
     const [shipyardServices, setShipyardServices] = useState<string[]>([]);
@@ -374,6 +453,48 @@ export default function BidDrydockPage() {
         price?: number;
         unit_price?: number;
     }>>([]);
+    const [bidDocumentUrl, setBidDocumentUrl] = useState<string | null>(null);
+    const [isCalculating, setIsCalculating] = useState(false);
+    const [isGeneratingDocument, setIsGeneratingDocument] = useState(false);
+    const [isSubmittingBid, setIsSubmittingBid] = useState(false);
+    const [liquidatedDamagesRate, setLiquidatedDamagesRate] = useState(0.5);
+
+    const totalBidAmount = calculationResults?.finalBid ?? 0;
+    const additionalCostsTotal = calculationResults?.additionalCosts?.total ?? 0;
+    const grandTotalAmount = calculationResults?.grandTotal ?? (totalBidAmount + additionalCostsTotal);
+    const totalDurationDays = calculationResults?.scheduleDetails?.totalDays ?? calculationResults?.totalDurationDays ?? 0;
+    const totalServicesSelected = calculationResults?.services?.length ?? 0;
+    const totalRequestedSqM = calculationResults?.services?.reduce((sum, service) => sum + (service.reqSqM || 0), 0) ?? 0;
+    const subtotalAmount = calculationResults?.subtotal ?? 0;
+    const contingencyAmount = calculationResults?.contingency ?? 0;
+    const scheduleDetails = calculationResults?.scheduleDetails;
+    const pricingBreakdown = calculationResults?.pricingBreakdown;
+    const contractConditions = calculationResults?.contractConditions;
+    const taxesAndFees = calculationResults?.taxesAndFees;
+    const additionalCosts = calculationResults?.additionalCosts;
+    const requiredDocumentation = calculationResults?.requiredDocumentation ?? [];
+    const formatDisplayDate = (iso?: string | null) => {
+        if (!iso) return 'TBD';
+        const date = new Date(iso);
+        if (isNaN(date.getTime())) return 'TBD';
+        return date.toLocaleDateString();
+    };
+    const scheduleStartLabel = formatDisplayDate(scheduleDetails?.startDate);
+    const scheduleEndLabel = formatDisplayDate(scheduleDetails?.endDate);
+    const penaltyDescription = scheduleDetails?.penalties?.description;
+    const bidPdfUrl = calculationResults?.bidDocumentUrl ?? bidDocumentUrl;
+
+    const handleRegenerateDocument = async () => {
+        if (!calculationResults) return;
+        try {
+            setIsGeneratingDocument(true);
+            const refreshedUrl = await generatePDF(calculationResults);
+            setBidDocumentUrl(refreshedUrl);
+            setCalculationResults(prev => prev ? { ...prev, bidDocumentUrl: refreshedUrl } : prev);
+        } finally {
+            setIsGeneratingDocument(false);
+        }
+    };
 
 
     const fetchDrydockRequests = async () => {
@@ -399,7 +520,12 @@ export default function BidDrydockPage() {
                     console.log(`Request ${index + 1} services_needed type:`, typeof request.services_needed);
                 });
                 
-                setDrydockRequests(data.drydockRequests || []);
+                // Filter out completed drydock requests
+                const filteredRequests = (data.drydockRequests || []).filter(
+                    (request: DrydockRequest) => request.status?.toUpperCase() !== 'COMPLETED'
+                );
+                
+                setDrydockRequests(filteredRequests);
             } else {
                 console.error('API response not ok:', response.status, response.statusText);
             }
@@ -510,6 +636,36 @@ export default function BidDrydockPage() {
         fetchShipyardServices();
     }, [user]);
 
+    // Auto-select services needed by shipowner when bid dialog opens
+    useEffect(() => {
+        if (openBidDialog && selectedRequest && shipyardServices.length > 0 && bidForm.servicesOffered.length === 0) {
+            const neededServices = getServicesWithArea(selectedRequest).map(s => s.name);
+            const matchedServices: string[] = [];
+            
+            // Match needed services with available shipyard services
+            neededServices.forEach(neededService => {
+                const normalizedNeeded = neededService.toLowerCase().trim();
+                const matched = shipyardServices.find(shipyardService => {
+                    const normalizedShipyard = shipyardService.toLowerCase().trim();
+                    return normalizedShipyard === normalizedNeeded ||
+                           normalizedShipyard.includes(normalizedNeeded) ||
+                           normalizedNeeded.includes(normalizedShipyard);
+                });
+                if (matched) {
+                    matchedServices.push(matched);
+                }
+            });
+            
+            // Auto-select matched services
+            if (matchedServices.length > 0) {
+                setBidForm(prev => ({
+                    ...prev,
+                    servicesOffered: matchedServices
+                }));
+            }
+        }
+    }, [openBidDialog, selectedRequest, shipyardServices]);
+
     // Helper to check if user has bid on a request
     const hasUserBid = (requestId: string) =>
         bidStatuses[requestId] || userBids.some(bid => bid.drydock_request_id === requestId);
@@ -608,8 +764,14 @@ export default function BidDrydockPage() {
     //     return getNormalizedNeededServices(selectedRequest).filter(service => isServiceOffered(service, offeredServices));
     // }
 
+    function addDays(date: Date, days: number) {
+        const result = new Date(date);
+        result.setDate(result.getDate() + days);
+        return result;
+    }
+
     // Calculate bid using the provided formula
-    function calculateBid() {
+    async function calculateBid() {
         if (!selectedRequest || bidForm.servicesOffered.length === 0) {
             toast({
                 title: "Error",
@@ -619,173 +781,302 @@ export default function BidDrydockPage() {
             return;
         }
 
-        console.log('=== CALCULATION DEBUG ===');
-        console.log('Selected services offered:', bidForm.servicesOffered);
-        console.log('Shipyard services data:', shipyardServicesData);
-        console.log('Shipyard services names:', shipyardServicesData.map(s => s.name));
-        
-        const neededServices = getServicesWithArea(selectedRequest);
-        console.log('=== NEEDED SERVICES DEBUG ===');
-        console.log('Selected request:', selectedRequest);
-        console.log('Needed services:', neededServices);
-        console.log('Number of needed services:', neededServices.length);
-        console.log('Needed service names:', neededServices.map(s => s.name));
-        
-        const results = {
-            services: [] as Array<{
-                name: string;
-                reqSqM: number;
-                refPrice: number;
-                refSqM: number;
-                refHours: number;
-                refWorkers: number;
-                refDays: number;
-                unitPrice: number;
-                workerHoursPerSqM: number;
-                serviceCost: number;
-                totalWorkerHours: number;
-                serviceDays: number;
-            }>,
-            subtotal: 0,
-            contingency: 0,
-            finalBid: 0,
-            projectDuration: 0,
-            maxServiceDays: 0,
-            totalServiceDays: 0
-        };
-
-        let maxServiceDays = 0;
-        let totalServiceDays = 0;
-
-        // For each selected service, find matching needed service and calculate
-        bidForm.servicesOffered.forEach(offeredService => {
-            console.log(`\nProcessing offered service: "${offeredService}"`);
-            
-            // Find matching needed service - try exact match first, then partial match
-            let matchingNeededService = neededServices.find(needed => 
-                superNormalize(needed.name) === superNormalize(offeredService)
-            );
-            
-            // If no exact match, try partial matching (contains)
-            if (!matchingNeededService) {
-                matchingNeededService = neededServices.find(needed => 
-                    superNormalize(needed.name).includes(superNormalize(offeredService)) ||
-                    superNormalize(offeredService).includes(superNormalize(needed.name))
-                );
-            }
-            
-            console.log('Matching needed service:', matchingNeededService);
-
-            if (matchingNeededService) {
-                // Find the reference data from shipyard services database
-                const serviceData = shipyardServicesData.find(s => {
-                    const serviceName = s.name || s.service_name;
-                    return superNormalize(serviceName) === superNormalize(offeredService) ||
-                           superNormalize(serviceName).includes(superNormalize(offeredService)) ||
-                           superNormalize(offeredService).includes(superNormalize(serviceName));
-                });
-                
-                console.log('Found service data:', serviceData);
-
-                if (serviceData) {
-                    // Use the simplified formula with only 3 key values from database
-                    // Handle different possible field names
-                    const refPrice = Number(serviceData.price || serviceData.unit_price) || 0;        // Ref_Price
-                    const refSqM = Number(serviceData.squareMeters || serviceData.square_meters || serviceData.area) || 1;   // Ref_SqM (default to 1 to avoid division by zero)
-                    const refDays = Number(serviceData.days || serviceData.duration) || 1;          // Ref_Days (default to 1)
-
-                    const reqSqM = Number(matchingNeededService.area) || 0;
-                    
-                    console.log(`Calculation inputs: refPrice=${refPrice}, refSqM=${refSqM}, refDays=${refDays}, reqSqM=${reqSqM}`);
-                    console.log(`Service data object:`, serviceData);
-
-                    // Validate inputs before calculation
-                    if (refPrice <= 0 || refSqM <= 0 || refDays <= 0) {
-                        console.error(`Invalid service data for ${offeredService}:`, { refPrice, refSqM, refDays });
-                        toast({
-                            title: "Calculation Error",
-                            description: `Invalid service data for ${offeredService}. Please check your service configuration.`,
-                            variant: "destructive",
-                        });
-                        return;
-                    }
-
-                    // Simple formula as specified
-                    const unitPrice = refPrice / refSqM;                    // Unit Price = Ref_Price ÷ Ref_SqM
-                    const serviceCost = unitPrice * reqSqM;                 // Service Cost = Unit Price × Requested SqM
-                    const serviceDays = refDays * (reqSqM / refSqM);        // Service Days = Ref_Days × (Requested SqM ÷ Ref_SqM)
-                    
-                    console.log(`Calculated: unitPrice=${unitPrice}, serviceCost=${serviceCost}, serviceDays=${serviceDays}`);
-
-                    results.services.push({
-                        name: offeredService,
-                        reqSqM: reqSqM,
-                        refPrice: refPrice,
-                        refSqM: refSqM,
-                        refHours: Number(serviceData.hours || serviceData.work_hours) || 0,           // Keep for display
-                        refWorkers: Number(serviceData.workers || serviceData.worker_count) || 0,       // Keep for display
-                        refDays: refDays,
-                        unitPrice: unitPrice,
-                        workerHoursPerSqM: 0,                  // Not used in simple formula
-                        serviceCost: serviceCost,
-                        totalWorkerHours: 0,                   // Not used in simple formula
-                        serviceDays: serviceDays
-                    });
-
-                    results.subtotal += serviceCost;
-                    maxServiceDays = Math.max(maxServiceDays, serviceDays);
-                    totalServiceDays += serviceDays;
-                } else {
-                    console.log(`No service data found for: ${offeredService}`);
-                }
-            } else {
-                console.log(`No matching needed service found for: ${offeredService}`);
-            }
-        });
-
-        // If no services were calculated, show error instead of test data
-        if (results.services.length === 0) {
-            console.log('No services matched - this indicates a data issue');
-            toast({
-                title: "Calculation Error",
-                description: "Unable to match selected services with vessel requirements. Please check your service data.",
-                variant: "destructive",
-            });
+        if (isCalculating) {
             return;
         }
 
-        console.log('Final results:', results);
+        setIsCalculating(true);
+        setBidDocumentUrl(null);
 
-        // Simple total calculation (no contingency as per your specification)
-        results.contingency = 0;  // No contingency in simple method
-        results.finalBid = results.subtotal;  // Total Bid = Sum of all Service Costs
-        results.maxServiceDays = maxServiceDays;  // If done together (parallel)
-        results.totalServiceDays = totalServiceDays;  // If done one after another (sequential)
-        results.projectDuration = maxServiceDays; // Default to parallel (longest service)
+        try {
+            console.log('=== CALCULATION DEBUG ===');
+            console.log('Selected services offered:', bidForm.servicesOffered);
+            console.log('Shipyard services data:', shipyardServicesData);
+            console.log('Shipyard services names:', shipyardServicesData.map(s => s.name));
+            
+            const neededServices = getServicesWithArea(selectedRequest);
+            console.log('=== NEEDED SERVICES DEBUG ===');
+            console.log('Selected request:', selectedRequest);
+            console.log('Needed services:', neededServices);
+            console.log('Number of needed services:', neededServices.length);
+            console.log('Needed service names:', neededServices.map(s => s.name));
+            
+            const MATERIAL_SHARE = 0.45;
+            const LABOR_SHARE = 0.35;
+            const EQUIPMENT_SHARE = 0.20;
+            const TENDER_FEE_AMOUNT = 25000;
 
-        setCalculationResults(results);
-        setShowCalculationDialog(true);
+            const results: CalculationResults = {
+                services: [],
+                subtotal: 0,
+                contingency: 0,
+                finalBid: 0,
+                totalDurationDays: 0,
+                pricingBreakdown: {
+                    currency: 'PHP',
+                    perService: [],
+                    totals: {
+                        materials: 0,
+                        labor: 0,
+                        equipment: 0,
+                        subtotal: 0
+                    },
+                notes: undefined
+                },
+                scheduleDetails: {
+                    totalDays: 0,
+                    startDate: null,
+                    endDate: null,
+                    dockingWindow: {
+                        docking: null,
+                        undocking: null
+                    },
+                    penalties: {
+                        liquidatedDamagesRate,
+                        description: `Liquidated damages at ${liquidatedDamagesRate}% of the contract price per calendar day of delay beyond approved completion.`
+                    }
+                },
+                contractConditions: {
+                    paymentTerms: [
+                        "20% mobilization upon PO issuance (bank transfer, PHP).",
+                        "50% progress billing upon owner-approved midpoint milestone.",
+                        "30% upon completion, acceptance, and redelivery."
+                    ],
+                    insuranceAndLiability: "Shipyard maintains comprehensive liability, WHM, and builder's risk coverages. Loss or damage to the vessel within the premises remains the shipyard's responsibility except for force majeure events.",
+                    warranty: "Six (6) months workmanship and materials warranty after redelivery. Defects discovered within the period are rectified at no additional cost.",
+                    qualityAssurance: "Inspection & Test Plans (ITPs) signed jointly with the owner's representative and the assigned class society surveyor before closing work packs.",
+                    hse: [
+                        "Hot work permits issued daily with fire-watch assignment and gas monitoring.",
+                        "Tank/void entry follows DOLE/OSHA confined-space protocols; gas-free certificates issued by certified chemist.",
+                        "Waste segregation, bilge control, and sludge disposal handled through DENR-accredited haulers."
+                    ]
+                },
+                taxesAndFees: {
+                    vat: {
+                        rate: 0.12,
+                        includedInTotal: true,
+                        note: "Philippines VAT rate (12%) is included in invoicing unless owner provides zero-rating/exemption certificates."
+                    },
+                    portCharges: "Docking/undocking fees generally waived while the vessel is inside a MARINA-accredited drydock subject to approved documentation.",
+                    importDuties: "Imported spares/materials may incur customs duties; exemptions apply when supported by BoC/DOF approvals.",
+                    otherPayments: [
+                        { name: "Tender / ITB Fee", detail: "Indicative ₱25,000 one-time, non-refundable to access bid documents." },
+                        { name: "Bid Security (EMD)", detail: "2% of the Approved Budget for Contract, refundable after award." },
+                        { name: "Performance Guarantee", detail: "10% of total contract price, released upon successful completion." },
+                        { name: "Labor Welfare Cess", detail: "1% of labor component when mandated by local regulations." }
+                    ]
+                },
+                additionalCosts: {
+                    items: [],
+                    incidentalNote: "Owner to bear pilots, tugs, crew housing, cranes, and sea trials unless otherwise agreed.",
+                    total: 0
+                },
+                requiredDocumentation: [
+                    "Company profile and past drydock projects (last 5 years).",
+                    "Signed self-declarations on legal capacity and tax compliance.",
+                    "Bank account & remittance instructions.",
+                    "List of available machinery, equipment, and certifications.",
+                    "Proof of insurance coverage and safety programs."
+                ],
+                bidDocumentUrl: null,
+                grandTotal: 0
+            };
+
+            let totalServiceDays = 0;
+
+            // For each selected service, find matching needed service and calculate
+            bidForm.servicesOffered.forEach(offeredService => {
+                console.log(`\nProcessing offered service: "${offeredService}"`);
+                
+                // Find matching needed service - try exact match first, then partial match
+                let matchingNeededService = neededServices.find(needed => 
+                    superNormalize(needed.name) === superNormalize(offeredService)
+                );
+                
+                // If no exact match, try partial matching (contains)
+                if (!matchingNeededService) {
+                    matchingNeededService = neededServices.find(needed => 
+                        superNormalize(needed.name).includes(superNormalize(offeredService)) ||
+                        superNormalize(offeredService).includes(superNormalize(needed.name))
+                    );
+                }
+                
+                console.log('Matching needed service:', matchingNeededService);
+
+                if (matchingNeededService) {
+                    // Find the reference data from shipyard services database
+                    const serviceData = shipyardServicesData.find(s => {
+                        const serviceName = s.name || s.service_name;
+                        return superNormalize(serviceName) === superNormalize(offeredService) ||
+                               superNormalize(serviceName).includes(superNormalize(offeredService)) ||
+                               superNormalize(offeredService).includes(superNormalize(serviceName));
+                    });
+                    
+                    console.log('Found service data:', serviceData);
+
+                    if (serviceData) {
+                        // Use the simplified formula with only 3 key values from database
+                        // Handle different possible field names
+                        const refPrice = Number(serviceData.price || serviceData.unit_price) || 0;        // Ref_Price
+                        const refSqM = Number(serviceData.squareMeters || serviceData.square_meters || serviceData.area) || 1;   // Ref_SqM (default to 1 to avoid division by zero)
+                        const refDays = Number(serviceData.days || serviceData.duration) || 1;          // Ref_Days (default to 1)
+
+                        const reqSqM = Number(matchingNeededService.area) || 0;
+                        
+                        console.log(`Calculation inputs: refPrice=${refPrice}, refSqM=${refSqM}, refDays=${refDays}, reqSqM=${reqSqM}`);
+                        console.log(`Service data object:`, serviceData);
+
+                        // Validate inputs before calculation
+                        if (refPrice <= 0 || refSqM <= 0 || refDays <= 0) {
+                            console.error(`Invalid service data for ${offeredService}:`, { refPrice, refSqM, refDays });
+                            toast({
+                                title: "Calculation Error",
+                                description: `Invalid service data for ${offeredService}. Please check your service configuration.`,
+                                variant: "destructive",
+                            });
+                            return;
+                        }
+
+                        // Simple formula as specified
+                        const unitPrice = refPrice / refSqM;                    // Unit Price = Ref_Price ÷ Ref_SqM
+                        const serviceCost = unitPrice * reqSqM;                 // Service Cost = Unit Price × Requested SqM
+                        const serviceDays = refDays * (reqSqM / refSqM);        // Service Days = Ref_Days × (Requested SqM ÷ Ref_SqM)
+                        
+                        console.log(`Calculated: unitPrice=${unitPrice}, serviceCost=${serviceCost}, serviceDays=${serviceDays}`);
+
+                        const materialsCost = serviceCost * MATERIAL_SHARE;
+                        const laborCost = serviceCost * LABOR_SHARE;
+                        const equipmentCost = serviceCost * EQUIPMENT_SHARE;
+
+                        results.services.push({
+                            name: offeredService,
+                            reqSqM: reqSqM,
+                            refPrice: refPrice,
+                            refSqM: refSqM,
+                            refHours: Number(serviceData.hours || serviceData.work_hours) || 0,           // Keep for display
+                            refWorkers: Number(serviceData.workers || serviceData.worker_count) || 0,       // Keep for display
+                            refDays: refDays,
+                            unitPrice: unitPrice,
+                            workerHoursPerSqM: 0,                  // Not used in simple formula
+                            serviceCost: serviceCost,
+                            totalWorkerHours: 0,                   // Not used in simple formula
+                            serviceDays: serviceDays,
+                            materialsCost,
+                            laborCost,
+                            equipmentCost
+                        });
+
+                        results.pricingBreakdown.perService.push({
+                            name: offeredService,
+                            materialsCost,
+                            laborCost,
+                            equipmentCost,
+                            totalCost: serviceCost
+                        });
+                        results.pricingBreakdown.totals.materials += materialsCost;
+                        results.pricingBreakdown.totals.labor += laborCost;
+                        results.pricingBreakdown.totals.equipment += equipmentCost;
+
+                        results.subtotal += serviceCost;
+                        totalServiceDays += serviceDays;
+                    } else {
+                        console.log(`No service data found for: ${offeredService}`);
+                    }
+                } else {
+                    console.log(`No matching needed service found for: ${offeredService}`);
+                }
+            });
+
+            // If no services were calculated, show error instead of test data
+            if (results.services.length === 0) {
+                console.log('No services matched - this indicates a data issue');
+                toast({
+                    title: "Calculation Error",
+                    description: "Unable to match selected services with vessel requirements. Please check your service data.",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            console.log('Final results:', results);
+
+            // Simple total calculation (no contingency as per your specification)
+            results.contingency = 0;  // No contingency in simple method
+            results.finalBid = results.subtotal;  // Total Bid = Sum of all Service Costs
+            results.pricingBreakdown.totals.subtotal = results.finalBid;
+
+            const totalDuration = Math.ceil(totalServiceDays);
+            results.totalDurationDays = totalDuration;
+            results.scheduleDetails.totalDays = totalDuration;
+
+            // Auto-generate start date as today
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Set to start of day
+            const startDateString = today.toISOString();
+            
+            // Calculate end date based on duration
+            const computedEnd = addDays(today, totalDuration);
+            const endDateString = computedEnd.toISOString();
+            
+            results.scheduleDetails.startDate = startDateString;
+            results.scheduleDetails.endDate = endDateString;
+            results.scheduleDetails.dockingWindow = {
+                docking: startDateString,
+                undocking: endDateString
+            };
+
+            // Update additional costs with computed values
+            const bidSecurityAmount = results.finalBid * 0.02;
+            const performanceGuaranteeAmount = results.finalBid * 0.10;
+            const laborWelfareCessAmount = results.pricingBreakdown.totals.labor * 0.01;
+            const additionalCostItems: AdditionalCostItem[] = [
+                { name: "Tender Fee", amount: TENDER_FEE_AMOUNT, description: "Non-refundable" },
+                { name: "Bid Security (2%)", amount: bidSecurityAmount, description: "Refundable after award" },
+                { name: "Performance Guarantee (10%)", amount: performanceGuaranteeAmount, description: "Released upon completion" },
+                { name: "Labor Welfare Cess (1% of labor)", amount: laborWelfareCessAmount, description: "Subject to DOLE directives" }
+            ];
+            const additionalCostsTotal = additionalCostItems.reduce((sum, item) => sum + item.amount, 0);
+            results.additionalCosts = {
+                items: additionalCostItems,
+                incidentalNote: "Owner to cover pilots, tugs, crew housing, crane hire, and sea trials unless specified.",
+                total: additionalCostsTotal
+            };
+            results.grandTotal = results.finalBid + additionalCostsTotal;
+
+            setCalculationResults(results);
+            setShowCalculationDialog(true);
+
+            try {
+                setIsGeneratingDocument(true);
+                const generatedUrl = await generatePDF(results);
+                setBidDocumentUrl(generatedUrl);
+                setCalculationResults(prev => prev ? { ...prev, bidDocumentUrl: generatedUrl } : prev);
+            } finally {
+                setIsGeneratingDocument(false);
+            }
+        } catch (error) {
+            console.error('Error during calculation:', error);
+            toast({
+                title: "Calculation Error",
+                description: "An error occurred while calculating the bid. Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsCalculating(false);
+        }
     }
 
     // Generate PDF using jsPDF and upload to S3
     async function generatePDF(results: {
-        services: Array<{
-            name: string;
-            reqSqM: number;
-            refPrice: number;
-            refSqM: number;
-            refHours: number;
-            refWorkers: number;
-            refDays: number;
-            unitPrice: number;
-            workerHoursPerSqM: number;
-            serviceCost: number;
-            totalWorkerHours: number;
-            serviceDays: number;
-        }>;
+        services: ServiceCalculation[];
         finalBid: number;
-        maxServiceDays: number;
-        totalServiceDays: number;
+        totalDurationDays?: number;
+        pricingBreakdown?: PricingBreakdown;
+        scheduleDetails?: ScheduleDetails;
+        contractConditions?: ContractConditions;
+        taxesAndFees?: TaxesAndFees;
+        additionalCosts?: AdditionalCosts;
+        requiredDocumentation?: string[];
     }): Promise<string | null> {
         const currentDate = new Date().toLocaleDateString();
         const vesselName = selectedRequest?.vessel?.name || 'Unknown Vessel';
@@ -951,12 +1242,160 @@ export default function BidDrydockPage() {
         // Duration Section
         doc.setFontSize(12);
         doc.setFont('helvetica', 'bold');
-        doc.text('PROJECT DURATION', 20, yPosition);
+        doc.text('SCHEDULE & TIMELINES', 20, yPosition);
         yPosition += 10;
         
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Parallel Execution (Recommended): ${Math.round(results.maxServiceDays)} days`, 20, yPosition);
+        const totalDurationForPdf = results.totalDurationDays || results.scheduleDetails?.totalDays || 0;
+        doc.text(`Total Duration: ${Math.round(totalDurationForPdf)} days`, 20, yPosition);
+        yPosition += 6;
+        if (results.scheduleDetails?.startDate) {
+            doc.text(`Docking / Start: ${formatDisplayDate(results.scheduleDetails.startDate)}`, 20, yPosition);
+            yPosition += 6;
+        }
+        if (results.scheduleDetails?.endDate) {
+            doc.text(`Undocking / Completion: ${formatDisplayDate(results.scheduleDetails.endDate)}`, 20, yPosition);
+            yPosition += 6;
+        }
+        if (results.scheduleDetails?.penalties?.description) {
+            doc.text(`Penalties: ${results.scheduleDetails.penalties.description}`, 20, yPosition);
+            yPosition += 10;
+        } else {
+            yPosition += 6;
+        }
+
+        // Pricing breakdown in PDF
+        if (results.pricingBreakdown) {
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('PRICING & FINANCIAL BID', 20, yPosition);
+            yPosition += 8;
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Service', 20, yPosition);
+            doc.text('Materials', 80, yPosition);
+            doc.text('Labor', 120, yPosition);
+            doc.text('Equipment', 150, yPosition);
+            doc.text('Total', 180, yPosition);
+            doc.line(20, yPosition + 2, 190, yPosition + 2);
+            yPosition += 8;
+            doc.setFont('helvetica', 'normal');
+            results.pricingBreakdown.perService.forEach(item => {
+                if (yPosition > 260) {
+                    doc.addPage();
+                    yPosition = 20;
+                }
+                doc.text(item.name, 20, yPosition);
+                doc.text(`₱${item.materialsCost.toLocaleString()}`, 80, yPosition);
+                doc.text(`₱${item.laborCost.toLocaleString()}`, 120, yPosition);
+                doc.text(`₱${item.equipmentCost.toLocaleString()}`, 150, yPosition);
+                doc.text(`₱${item.totalCost.toLocaleString()}`, 180, yPosition);
+                yPosition += 6;
+            });
+            yPosition += 8;
+        }
+
+        // Contract Conditions
+        if (results.contractConditions) {
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('GENERAL & SPECIAL CONDITIONS', 20, yPosition);
+            yPosition += 8;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text('Payment Terms:', 20, yPosition);
+            yPosition += 6;
+            results.contractConditions.paymentTerms.forEach(term => {
+                doc.text(`• ${term}`, 25, yPosition);
+                yPosition += 5;
+            });
+            yPosition += 4;
+            doc.text(`Insurance & Liability: ${results.contractConditions.insuranceAndLiability}`, 20, yPosition);
+            yPosition += 5;
+            doc.text(`Warranty: ${results.contractConditions.warranty}`, 20, yPosition);
+            yPosition += 5;
+            doc.text(`QA/QC: ${results.contractConditions.qualityAssurance}`, 20, yPosition);
+            yPosition += 5;
+            doc.text('HSE Highlights:', 20, yPosition);
+            yPosition += 5;
+            results.contractConditions.hse.forEach(item => {
+                doc.text(`• ${item}`, 25, yPosition);
+                yPosition += 5;
+            });
+            yPosition += 6;
+        }
+
+        // Taxes & Other Fees
+        if (results.taxesAndFees) {
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('TAXES & OTHER PAYMENTS', 20, yPosition);
+            yPosition += 8;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`VAT: ${results.taxesAndFees.vat.rate * 100}% - ${results.taxesAndFees.vat.note}`, 20, yPosition);
+            yPosition += 5;
+            doc.text(`Port Charges: ${results.taxesAndFees.portCharges}`, 20, yPosition);
+            yPosition += 5;
+            doc.text(`Import Duties: ${results.taxesAndFees.importDuties}`, 20, yPosition);
+            yPosition += 5;
+            doc.text('Other Payments:', 20, yPosition);
+            yPosition += 5;
+            results.taxesAndFees.otherPayments.forEach(item => {
+                doc.text(`• ${item.name}: ${item.detail}`, 25, yPosition);
+                yPosition += 5;
+            });
+            yPosition += 6;
+        }
+
+        if (results.additionalCosts) {
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('OTHER REQUIRED COSTS', 20, yPosition);
+            yPosition += 8;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            results.additionalCosts.items.forEach(item => {
+                doc.text(`${item.name}: ₱${item.amount.toLocaleString()}`, 20, yPosition);
+                yPosition += 5;
+            });
+            doc.text(`Total Upfront Costs: ₱${results.additionalCosts.total.toLocaleString()}`, 20, yPosition);
+            yPosition += 5;
+            doc.text(`Incidental: ${results.additionalCosts.incidentalNote}`, 20, yPosition);
+            yPosition += 6;
+        }
+
+        // Grand total summary
+        const totalUpfrontForPdf = results.additionalCosts?.total ?? 0;
+        const grandTotalForPdf = (results as CalculationResults).grandTotal ?? (results.finalBid + totalUpfrontForPdf);
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('FINANCIAL SUMMARY', 20, yPosition);
+        yPosition += 8;
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Service Subtotal: ₱${results.finalBid.toLocaleString()}`, 20, yPosition);
+        yPosition += 5;
+        doc.text(`Additional Upfront Costs: ₱${totalUpfrontForPdf.toLocaleString()}`, 20, yPosition);
+        yPosition += 5;
+        doc.text(`Grand Total: ₱${grandTotalForPdf.toLocaleString()}`, 20, yPosition);
+        yPosition += 10;
+
+        // Required Documentation
+        if (results.requiredDocumentation && results.requiredDocumentation.length > 0) {
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('REQUIRED DOCUMENTATION', 20, yPosition);
+            yPosition += 8;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            results.requiredDocumentation.forEach(item => {
+                doc.text(`• ${item}`, 25, yPosition);
+                yPosition += 5;
+            });
+            yPosition += 6;
+        }
         
         // Footer
         yPosition = 280;
@@ -1292,72 +1731,76 @@ export default function BidDrydockPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-            <Dialog open={openBidDialog} onOpenChange={setOpenBidDialog}>
+            <Dialog open={openBidDialog} onOpenChange={(open) => {
+                setOpenBidDialog(open);
+                if (!open) {
+                    // Reset form when dialog closes
+                    setBidForm({
+                        servicesOffered: [],
+                        unitCost: ''
+                    });
+                    setCalculationResults(null);
+                    setBidDocumentUrl(null);
+                    setLiquidatedDamagesRate(0.5);
+                }
+            }}>
                 <DialogContent className="!w-[600px] !max-w-[95vw]">
                     <DialogHeader>
                         <DialogTitle>Bid Drydock</DialogTitle>
                         <DialogDescription>Select the services you can provide and submit your bid.</DialogDescription>
                     </DialogHeader>
                     <div className="flex flex-col gap-6">
-                        {/* Services Needed by Vessel */}
-                        <div className="space-y-3">
-                            <h3 className="text-sm font-medium text-gray-900">Services Needed by Vessel</h3>
-                            {selectedRequest && getServicesWithArea(selectedRequest).length > 0 ? (
-                                <div className="border border-gray-300 rounded-md overflow-hidden">
-                                    <table className="w-full">
-                                        <thead className="bg-gray-50">
-                                            <tr>
-                                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Name of the service</th>
-                                                <th className="px-4 py-3 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Square Meters</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {getServicesWithArea(selectedRequest).map((service, index) => (
-                                                <tr key={index} className="border-b border-gray-200 last:border-b-0">
-                                                    <td className="px-4 py-3 text-sm text-gray-700">{service.name}</td>
-                                                    <td className="px-4 py-3 text-sm text-gray-700">{service.area > 0 ? `${service.area} m²` : 'N/A'}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <div className="border border-gray-300 rounded-md p-3 bg-gray-50">
-                                    <span className="text-sm text-gray-500">No services specified</span>
-                                </div>
-                            )}
-                        </div>
-
                         {/* Your Available Services */}
                         <div className="space-y-3">
-                            <h3 className="text-sm font-medium text-gray-900">Select Services You Can Provide</h3>
-                            <div className=" overflow-y-auto">
+                            <h3 className="text-sm font-semibold text-gray-700">Select Services</h3>
+                            <div className="overflow-y-auto max-h-[300px]">
                                 {shipyardServices.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {shipyardServices.map((service, index) => (
-                                            <div key={index} className="flex items-center space-x-2 p-2 border border-gray-300 rounded-md">
-                                                <Checkbox
-                                                    id={`service-${index}`}
-                                                    checked={bidForm.servicesOffered.includes(service)}
-                                                    onCheckedChange={(checked) => {
-                                                        if (checked) {
-                                                            setBidForm(prev => ({
-                                                                ...prev,
-                                                                servicesOffered: [...prev.servicesOffered, service]
-                                                            }));
-                                                        } else {
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {shipyardServices.map((service, index) => {
+                                            const isSelected = bidForm.servicesOffered.includes(service);
+                                            return (
+                                                <div
+                                                    key={index}
+                                                    onClick={() => {
+                                                        if (isSelected) {
                                                             setBidForm(prev => ({
                                                                 ...prev,
                                                                 servicesOffered: prev.servicesOffered.filter(s => s !== service)
                                                             }));
+                                                        } else {
+                                                            setBidForm(prev => ({
+                                                                ...prev,
+                                                                servicesOffered: [...prev.servicesOffered, service]
+                                                            }));
                                                         }
                                                     }}
-                                                />
-                                                <label htmlFor={`service-${index}`} className="text-sm text-gray-700 cursor-pointer">
-                                                    {service}
-                                                </label>
-                                            </div>
-                                        ))}
+                                                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                                                        isSelected
+                                                            ? 'border-blue-500 bg-blue-50 shadow-md'
+                                                            : 'border-gray-300 bg-white hover:border-gray-400 hover:shadow-sm'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
+                                                            {service}
+                                                        </span>
+                                                        {isSelected && (
+                                                            <svg
+                                                                className="w-5 h-5 text-blue-600"
+                                                                fill="currentColor"
+                                                                viewBox="0 0 20 20"
+                                                            >
+                                                                <path
+                                                                    fillRule="evenodd"
+                                                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                                                    clipRule="evenodd"
+                                                                />
+                                                            </svg>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <span className="text-sm text-gray-500">No services available</span>
@@ -1365,15 +1808,34 @@ export default function BidDrydockPage() {
                             </div>
                         </div>
 
+                        {/* Liquidated Damages */}
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-semibold text-gray-700">Contract Terms</h3>
+                            <label className="flex flex-col gap-1 text-sm text-gray-600">
+                                <span>Liquidated Damages (% of contract per delayed day)</span>
+                                <Input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    value={liquidatedDamagesRate}
+                                    onChange={(e) => setLiquidatedDamagesRate(Number(e.target.value) || 0)}
+                                    className="h-9"
+                                    placeholder="0.5"
+                                />
+                            </label>
+                            <p className="text-xs text-gray-500">
+                                Start date will be set to today. Completion date will be calculated based on service duration.
+                            </p>
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button className='cursor-pointer' variant="outline" onClick={() => setShowCancelConfirm(true)}>Cancel</Button>
                         <Button 
                             className='cursor-pointer bg-blue-600 hover:bg-blue-700 text-white' 
                             onClick={calculateBid}
-                            disabled={bidForm.servicesOffered.length === 0}
+                            disabled={bidForm.servicesOffered.length === 0 || isCalculating}
                         >
-                            Calculate
+                            {isCalculating ? 'Calculating...' : 'Calculate'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1389,13 +1851,29 @@ export default function BidDrydockPage() {
                     </ConfirmDialogHeader>
                     <ConfirmDialogFooter>
                         <Button variant="outline" onClick={() => setShowCancelConfirm(false)}>No</Button>
-                        <Button variant="destructive" onClick={() => { setShowCancelConfirm(false); setOpenBidDialog(false); }}>Yes, Cancel</Button>
+                        <Button variant="destructive" onClick={() => {
+                            // Reset all form data
+                            setBidForm({
+                                servicesOffered: [],
+                                unitCost: ''
+                            });
+                            setCalculationResults(null);
+                            setBidDocumentUrl(null);
+                            setLiquidatedDamagesRate(0.5);
+                            setShowCancelConfirm(false);
+                            setOpenBidDialog(false);
+                        }}>Yes, Cancel</Button>
                     </ConfirmDialogFooter>
                 </ConfirmDialogContent>
             </ConfirmDialog>
 
             {/* Calculation Results Dialog */}
-            <Dialog open={showCalculationDialog} onOpenChange={setShowCalculationDialog}>
+            <Dialog open={showCalculationDialog} onOpenChange={(open) => {
+                setShowCalculationDialog(open);
+                if (!open) {
+                    setIsSubmittingBid(false);
+                }
+            }}>
                 <DialogContent className="!w-[800px] !max-w-[95vw] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle className="text-[#134686] text-xl font-bold">Bid Calculation Results</DialogTitle>
@@ -1403,109 +1881,157 @@ export default function BidDrydockPage() {
                     </DialogHeader>
                     {calculationResults && (
                         <div className="space-y-6">
-                            {/* Service Details Table */}
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="text-md font-semibold text-gray-900">Service Calculations</h3>
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={() => setShowFormulaDialog(true)}
-                                        className="text-xs"
-                                    >
-                                        Formula
-                                    </Button>
+                            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="rounded-lg border border-gray-200 bg-white p-3 ">
+                                    <p className="text-[10px] font-semibold uppercase text-gray-500">Services</p>
+                                    <p className="mt-1 text-xl font-bold text-gray-900">{totalServicesSelected}</p>
                                 </div>
-                                <div className="border border-gray-300 rounded-md overflow-hidden">
-                                    <table className="w-full">
-                                        <thead className="bg-gray-50">
-                                            <tr>
-                                                <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Service</th>
-                                                <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Req SqM</th>
-                                                <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Unit Price</th>
-                                                <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Service Cost</th>
-                                                <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 border-b border-gray-300">Service Days</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {calculationResults.services.map((service: {
-                                                name: string;
-                                                reqSqM: number;
-                                                refPrice: number;
-                                                refSqM: number;
-                                                refHours: number;
-                                                refWorkers: number;
-                                                refDays: number;
-                                                unitPrice: number;
-                                                workerHoursPerSqM: number;
-                                                serviceCost: number;
-                                                totalWorkerHours: number;
-                                                serviceDays: number;
-                                            }, index: number) => (
-                                                <tr key={index} className="border-b border-gray-200 last:border-b-0">
-                                                    <td className="px-4 py-2 text-sm text-gray-700">{service.name}</td>
-                                                    <td className="px-4 py-2 text-sm text-gray-700">{service.reqSqM} m²</td>
-                                                    <td className="px-4 py-2 text-sm text-gray-700">₱{service.unitPrice.toLocaleString()}/m²</td>
-                                                    <td className="px-4 py-2 text-sm text-gray-700">₱{service.serviceCost.toLocaleString()}</td>
-                                                    <td className="px-4 py-2 text-sm text-gray-700">{Math.round(service.serviceDays)} days</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                    <p className="text-[10px] font-semibold uppercase text-blue-900">Total Duration</p>
+                                    <p className="mt-1 text-xl font-bold text-blue-900">{totalDurationDays} days</p>
+                                </div>
+                                <div className="rounded-lg border border-yellow-100 bg-yellow-50 p-3 ">
+                                    <p className="text-[10px] font-semibold uppercase text-yellow-900">Subtotal</p>
+                                    <p className="mt-1 text-xl font-bold text-yellow-900">₱{subtotalAmount.toLocaleString()}</p>
+                                </div>
+                                <div className="rounded-lg border border-green-100 bg-green-50 p-3">
+                                    <p className="text-[10px] font-semibold uppercase text-green-700">Grand Total</p>
+                                    <p className="mt-1 text-xl font-bold text-green-700">₱{grandTotalAmount.toLocaleString()}</p>
+                                </div>
+                               
+                               
+                               
+                            </div>
+
+                            {/* Service Details */}
+                            <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                                    <h3 className="text-md font-semibold text-gray-900">Service Calculations</h3>
+                                </div>
+                                <div className="space-y-4">
+                                    {calculationResults.services.map((service, index) => {
+                                        const pricingItem = pricingBreakdown?.perService.find(item => item.name === service.name);
+                                        return (
+                                            <div key={index} className="bg-white border border-gray-200 rounded-lg p-4">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold">
+                                                            {index + 1}
+                                                        </div>
+                                                        <h4 className="text-sm font-semibold text-gray-900">{service.name}</h4>
+                                                    </div>
+                                                    <span className="text-base font-bold text-gray-900">₱{service.serviceCost.toLocaleString()}</span>
+                                                </div>
+                                                {pricingItem && (
+                                                    <div className="space-y-2 pt-3 border-t border-gray-200">
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-500">Materials:</span>
+                                                                    <span className="font-semibold text-gray-900">₱{pricingItem.materialsCost.toLocaleString()}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-500">Labor:</span>
+                                                                    <span className="font-semibold text-gray-900">₱{pricingItem.laborCost.toLocaleString()}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-500">Equipment:</span>
+                                                                    <span className="font-semibold text-gray-900">₱{pricingItem.equipmentCost.toLocaleString()}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-gray-500">
+                                                                {service.reqSqM} m² • {Math.round(service.serviceDays)} days
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 
-                                            {/* Project Duration */}
-                            <div className="space-y-3">
-                                <h3 className="text-md font-semibold text-gray-900">Total Drydock Duration</h3>
-                                <div className="bg-blue-50 p-4 rounded-md space-y-2">
-                                    <div className="flex justify-between">
-                                        <span className="text-sm font-medium text-gray-700">Parallel Crews (Recommended):</span>
-                                        <span className="text-sm text-gray-900">{Math.round(calculationResults.maxServiceDays)} days</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {/* Summary */}
-                            <div className="space-y-3">
+                            {/* Bid Summary */}
+                            <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
                                 <h3 className="text-md font-semibold text-gray-900">Bid Summary</h3>
-                                <div className="bg-gray-50 p-4 rounded-md space-y-2">
+                                <div className="divide-y divide-gray-100 text-sm">
                                     {calculationResults.services.map((service, index) => (
-                                        <div key={index} className="flex justify-between">
-                                            <span className="text-sm font-medium text-gray-700">{service.name}:</span>
-                                            <span className="text-sm text-gray-900">₱{service.serviceCost.toLocaleString()}</span>
+                                        <div key={index} className="flex items-center justify-between py-2">
+                                            <span className="font-medium text-gray-700">{service.name}</span>
+                                            <span className="font-semibold text-gray-900">₱{service.serviceCost.toLocaleString()}</span>
                                         </div>
                                     ))}
-                                    <div className="flex justify-between border-t border-gray-300 pt-2">
-                                        <span className="text-base font-bold text-gray-900">Total Bid:</span>
-                                        <span className="text-base font-bold text-green-600">₱{calculationResults.finalBid.toLocaleString()}</span>
+                                </div>
+                                <div className="mt-4 space-y-3">
+                                    <div className="flex items-center justify-between text-sm font-semibold text-gray-800">
+                                        <span>Service Subtotal</span>
+                                        <span>₱{calculationResults.finalBid.toLocaleString()}</span>
+                                    </div>
+                                    {additionalCosts?.items?.length ? (
+                                        <div className="rounded-md border border-gray-100 bg-gray-50 p-3 space-y-2">
+                                            <p className="text-sm font-semibold text-gray-800">Additional Required Payments</p>
+                                            {additionalCosts.items.map((item, index) => (
+                                                <div key={index} className="flex items-center justify-between text-sm text-gray-700">
+                                                    <span>{item.name}</span>
+                                                    <span>₱{item.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                                </div>
+                                            ))}
+                                            <div className="flex items-center justify-between pt-2 border-t border-gray-200 text-sm font-semibold text-gray-800">
+                                                <span>Total Upfront Costs</span>
+                                                <span>₱{additionalCosts.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                    <div className="flex items-center justify-between border-t-2 border-gray-300 pt-4">
+                                        <span className="text-lg font-bold text-gray-900">Grand Total</span>
+                                        <span className="text-lg font-bold text-green-600">₱{grandTotalAmount.toLocaleString()}</span>
                                     </div>
                                 </div>
-                             </div>
+                            </div>
 
-                             {/* Generate PDF Section */}
-                             <div className="space-y-3">
-                                 <h3 className="text-md font-semibold text-gray-900">Generate Report</h3>
-                                 <div className="bg-gray-50 p-4 rounded-md">
-                                     <div className="flex items-center justify-between">
-                                         <div className="flex items-center space-x-2">
-                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                             </svg>
-                                             <span className="text-sm text-gray-700">Bid Calculation Report</span>
-                                         </div>
-                                        
-                                     </div>
-                                 </div>
-                             </div>
-
-                            
+                            {/* Generate PDF Section */}
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+                                <div className="flex items-center space-x-3">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    </svg>
+                                    <div>
+                                        <h3 className="text-md font-semibold text-gray-900">Bid Document</h3>
+                                        <p className="text-sm text-gray-600">
+                                            {isGeneratingDocument ? 'Generating secure PDF...' : bidPdfUrl ? 'Latest PDF bid document is ready.' : 'Document generates automatically after each calculation.'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-3">
+                                    <Button
+                                        variant="outline"
+                                        disabled={!bidPdfUrl || isGeneratingDocument}
+                                        onClick={() => {
+                                            if (bidPdfUrl) {
+                                                // Use proxy route to avoid CORS errors
+                                                const proxyUrl = `/api/proxy-pdf?url=${encodeURIComponent(bidPdfUrl)}`;
+                                                window.open(proxyUrl, '_blank');
+                                            }
+                                        }}
+                                    >
+                                        View Bid Document
+                                    </Button>
+                                    <Button
+                                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                                        onClick={handleRegenerateDocument}
+                                        disabled={isGeneratingDocument || !calculationResults}
+                                    >
+                                        {isGeneratingDocument ? 'Generating...' : 'Regenerate Document'}
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
                     )}
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowCalculationDialog(false)}>Close</Button>
                         <Button 
                             className="bg-green-600 hover:bg-green-700 text-white"
+                            disabled={isSubmittingBid}
                             onClick={async () => {
                                 if (!selectedRequest || !calculationResults || !user?.id) {
                                     toast({
@@ -1516,14 +2042,16 @@ export default function BidDrydockPage() {
                                     return;
                                 }
 
+                                setIsSubmittingBid(true);
                                 try {
-                                    // Generate PDF certificate first
-                                    toast({
-                                        title: "Generating Certificate",
-                                        description: "Creating bid certificate PDF...",
-                                    });
-
-                                    const certificateUrl = await generatePDF(calculationResults);
+                                    let certificateUrl = bidPdfUrl;
+                                    if (!certificateUrl) {
+                                        toast({
+                                            title: "Generating Certificate",
+                                            description: "Creating bid certificate PDF...",
+                                        });
+                                        certificateUrl = await generatePDF(calculationResults);
+                                    }
                                     
                                     if (!certificateUrl) {
                                         toast({
@@ -1533,6 +2061,9 @@ export default function BidDrydockPage() {
                                         });
                                         return;
                                     }
+
+                                    setBidDocumentUrl(certificateUrl);
+                                    setCalculationResults(prev => prev ? { ...prev, bidDocumentUrl: certificateUrl } : prev);
 
                                     // Submit bid with certificate URL
                                     const response = await fetch('/api/shipyard/submit-bid', {
@@ -1545,11 +2076,15 @@ export default function BidDrydockPage() {
                                             shipyardUserId: user.id,
                                             servicesOffered: bidForm.servicesOffered,
                                             serviceCalculations: calculationResults.services,
-                                            totalBid: calculationResults.finalBid,
-                                            totalDays: calculationResults.maxServiceDays,
-                                            parallelDays: calculationResults.maxServiceDays,
-                                            sequentialDays: calculationResults.totalServiceDays,
-                                            bidCertificateUrl: certificateUrl
+                                            totalBid: calculationResults.grandTotal,
+                                            totalDays: calculationResults.totalDurationDays,
+                                            bidCertificateUrl: certificateUrl,
+                                            pricingBreakdown: calculationResults.pricingBreakdown,
+                                            scheduleDetails: calculationResults.scheduleDetails,
+                                            contractConditions: calculationResults.contractConditions,
+                                            taxesAndFees: calculationResults.taxesAndFees,
+                                            additionalCosts: calculationResults.additionalCosts,
+                                            requiredDocumentation: calculationResults.requiredDocumentation
                                         }),
                                     });
 
@@ -1584,10 +2119,19 @@ export default function BidDrydockPage() {
                                         description: "Failed to submit bid. Please try again.",
                                         variant: "destructive",
                                     });
+                                } finally {
+                                    setIsSubmittingBid(false);
                                 }
                             }}
                         >
-                            Bid Now
+                            {isSubmittingBid ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Submitting...
+                                </>
+                            ) : (
+                                'Bid Now'
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

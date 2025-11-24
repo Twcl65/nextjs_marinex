@@ -138,8 +138,12 @@ model DrydockBid {
   serviceCalculations   Json
   totalBid              Float
   totalDays             Int
-  parallelDays          Int
-  sequentialDays        Int
+  pricingBreakdown      Json?
+  scheduleDetails       Json?
+  contractConditions    Json?
+  taxesAndFees          Json?
+  additionalCosts       Json?
+  requiredDocumentation Json?
   status                BidStatus        @default(SUBMITTED)
   submittedAt           DateTime         @default(now())
   updatedAt             DateTime         @updatedAt

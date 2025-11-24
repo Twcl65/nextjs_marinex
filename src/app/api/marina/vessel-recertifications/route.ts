@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import crypto from 'crypto'
 
 const prisma = new PrismaClient()
 
@@ -143,17 +144,32 @@ export async function POST(request: NextRequest) {
         const certificateBuffer = await generateVesselCertificate(recertification)
         console.log('Certificate generated, size:', certificateBuffer.length)
 
-        // Upload to S3
+        // Upload to S3 (with ACL fallback for buckets that don't allow ACLs)
         const fileName = `vessel-certificate-${recertificateId}-${Date.now()}.pdf`
         console.log('Uploading to S3:', fileName)
         
-        await s3Client.send(new PutObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET!,
-          Key: `certificates/${fileName}`,
-          Body: certificateBuffer,
-          ContentType: 'application/pdf',
-          ACL: 'public-read',
-        }))
+        try {
+          await s3Client.send(new PutObjectCommand({
+            Bucket: process.env.AWS_S3_BUCKET!,
+            Key: `certificates/${fileName}`,
+            Body: certificateBuffer,
+            ContentType: 'application/pdf',
+            ACL: 'public-read',
+          }))
+          console.log(`[Recertification] Certificate uploaded with public-read ACL`)
+        } catch (aclError: unknown) {
+          console.warn(`[Recertification] ACL upload failed, trying without ACL:`, aclError)
+          
+          // Retry without ACL (bucket policy might handle public access)
+          await s3Client.send(new PutObjectCommand({
+            Bucket: process.env.AWS_S3_BUCKET!,
+            Key: `certificates/${fileName}`,
+            Body: certificateBuffer,
+            ContentType: 'application/pdf',
+            // No ACL - rely on bucket policy
+          }))
+          console.log(`[Recertification] Certificate uploaded without ACL (using bucket policy)`)
+        }
 
         // Generate a signed URL for the certificate (valid for 7 days - maximum allowed)
         const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
@@ -163,7 +179,11 @@ export async function POST(request: NextRequest) {
 
         console.log('Certificate uploaded to:', signedUrl)
 
-        // Update the recertification record
+        // Calculate new expiry date (5 years from now)
+        const newExpiryDate = new Date()
+        newExpiryDate.setFullYear(newExpiryDate.getFullYear() + 5)
+
+        // Update the recertification record and vessel certificate expiry
         const updatedRecertification = await prisma.drydockVesselRecertificate.update({
           where: { id: recertificateId },
           data: {
@@ -173,7 +193,185 @@ export async function POST(request: NextRequest) {
           }
         })
 
+        // Update vessel certificate expiry date
+        await prisma.shipVessel.update({
+          where: { id: recertification.vesselId },
+          data: {
+            vesselCertificationExpiry: newExpiryDate,
+            updatedAt: new Date()
+          }
+        })
+
         console.log('Database updated successfully')
+        console.log(`Vessel certificate expiry updated to: ${newExpiryDate.toISOString()}`)
+
+        // Send notification to shipowner
+        try {
+          const notificationMessage = `Dear **${recertification.companyName || 'Valued Customer'}**,
+
+We are pleased to inform you that your vessel recertification request for **${recertification.vesselName}** (IMO: ${recertification.vesselImoNumber}) has been approved and completed.
+
+Your vessel certificate has been generated and is now available for download. The certificate is valid for five years from the issue date.
+
+You can access your certificate through your vessel recertification dashboard.
+
+If you have any questions or need assistance, please feel free to contact us.
+
+Thank you for using our services.
+
+Best regards,
+**Maritime Industry Authority**`
+
+          // Create notification
+          const notificationId = crypto.randomUUID()
+          
+          await prisma.$executeRaw`
+            INSERT INTO drydock_mc_notifications (
+              id, userId, vesselId, drydockReport, drydockCertificate, 
+              safetyCertificate, vesselPlans, title, type, message, 
+              isRead, createdAt, updatedAt
+            ) VALUES (
+              ${notificationId}, ${recertification.userId}, ${recertification.vesselId}, 
+              0, 0, 0, 0,
+              'Vessel Recertification Approved', 'Vessel Recertification',
+              ${notificationMessage}, 0, NOW(), NOW()
+            )
+          `
+
+          console.log('Notification created successfully:', notificationId)
+
+          // Send SMS notification if user has contact number
+          let smsSent = false
+          let smsError = null
+          
+          if (recertification.user.contactNumber) {
+            try {
+              // Format phone number (handle formats like: 09166879159, +639166879159, 9166879159)
+              let phoneNumber = recertification.user.contactNumber.trim().replace(/\s+/g, '')
+              
+              // Remove any non-digit characters except +
+              phoneNumber = phoneNumber.replace(/[^\d+]/g, '')
+              
+              // Handle different phone number formats (same as mc-notifications)
+              if (phoneNumber.startsWith('+63')) {
+                // Already in international format: +639166879159
+                // Just validate it has 10 digits after +63
+                const digits = phoneNumber.substring(3)
+                if (digits.length !== 10) {
+                  throw new Error(`Invalid phone number length: ${phoneNumber}. Expected 10 digits after +63`)
+                }
+              } else if (phoneNumber.startsWith('63') && phoneNumber.length === 12) {
+                // Format: 639166879159 (missing +)
+                phoneNumber = `+${phoneNumber}`
+              } else if (phoneNumber.startsWith('0') && phoneNumber.length === 11) {
+                // Format: 09166879159 (local format with leading 0)
+                phoneNumber = phoneNumber.substring(1) // Remove leading 0
+                phoneNumber = `+63${phoneNumber}`
+              } else if (phoneNumber.length === 10 && /^9\d{9}$/.test(phoneNumber)) {
+                // Format: 9166879159 (10 digits starting with 9)
+                phoneNumber = `+63${phoneNumber}`
+              } else {
+                throw new Error(`Invalid phone number format: ${recertification.user.contactNumber}. Supported formats: 09166879159, 9166879159, +639166879159`)
+              }
+
+              // Final validation: should be +63 followed by exactly 10 digits
+              if (!/^\+63\d{10}$/.test(phoneNumber)) {
+                throw new Error(`Invalid phone number format after processing: ${phoneNumber}. Expected format: +639123456789`)
+              }
+
+              console.log(`Formatted phone number: ${recertification.user.contactNumber} -> ${phoneNumber}`)
+
+              // Prepare SMS message (plain text version of notification)
+              const smsMessage = `Dear ${recertification.companyName || 'Valued Customer'},
+
+We are pleased to inform you that your vessel recertification request for ${recertification.vesselName} (IMO: ${recertification.vesselImoNumber}) has been approved and completed.
+
+Your vessel certificate has been generated and is now available for download. The certificate is valid for five years from the issue date.
+
+You can access your certificate through your vessel recertification dashboard.
+
+Thank you for using our services.
+
+Best regards,
+Maritime Industry Authority`
+
+              // Send SMS using TextBee.dev API (same format as mc-notifications)
+              const textbeeApiKey = process.env.TEXTBEE_API_KEY || 'ceedf0f3-b0b3-43e4-af6a-aa5a2745f4c1'
+              const textbeeDeviceId = process.env.TEXTBEE_DEVICE_ID || '69232a9382033f1609eb65b1'
+              
+              const textbeeApiUrl = `https://api.textbee.dev/api/v1/gateway/devices/${textbeeDeviceId}/send-sms`
+
+              console.log('Sending SMS via TextBee.dev to:', phoneNumber)
+              console.log('TextBee Device ID:', textbeeDeviceId)
+              console.log('TextBee API URL:', textbeeApiUrl)
+
+              const smsResponse = await fetch(textbeeApiUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': textbeeApiKey,
+                },
+                body: JSON.stringify({
+                  recipients: [phoneNumber],
+                  message: smsMessage,
+                }),
+              })
+
+              console.log('SMS API Response Status:', smsResponse.status)
+              
+              // Get response text first (can only read once)
+              const responseText = await smsResponse.text()
+              console.log('SMS API Response Text:', responseText)
+
+              // Check if response is OK
+              if (!smsResponse.ok) {
+                console.error('SMS API HTTP Error:', smsResponse.status, responseText)
+                smsError = `HTTP ${smsResponse.status}: ${responseText.substring(0, 200)}`
+              } else {
+                // Try to parse JSON response
+                try {
+                  const smsResult = JSON.parse(responseText)
+                  console.log('SMS API Response (parsed):', smsResult)
+
+                  // TextBee.dev typically returns success in response data
+                  if (smsResult.success || smsResult.status === 'success' || smsResponse.ok) {
+                    smsSent = true
+                    console.log('SMS sent successfully via TextBee.dev:', smsResult)
+                  } else {
+                    smsError = smsResult.error || smsResult.message || 'Failed to send SMS'
+                    console.error('SMS API error:', smsError)
+                  }
+                } catch (parseError) {
+                  console.error('Failed to parse SMS API response as JSON:', parseError)
+                  console.error('Response text:', responseText)
+                  // If it's not JSON but status is OK, might still be successful
+                  if (smsResponse.ok && responseText.toLowerCase().includes('success')) {
+                    smsSent = true
+                    console.log('SMS appears to be sent (non-JSON success response)')
+                  } else {
+                    smsError = `Invalid response format: ${responseText.substring(0, 200)}`
+                  }
+                }
+              }
+            } catch (error) {
+              smsError = error instanceof Error ? error.message : 'Unknown SMS error'
+              console.error('Error sending SMS:', error)
+              // Don't fail the notification if SMS fails
+            }
+          } else {
+            console.log('SMS not sent: User does not have a contact number')
+            console.log('User object:', { 
+              userId: recertification.userId, 
+              fullName: recertification.user.fullName,
+              contactNumber: recertification.user.contactNumber 
+            })
+          }
+
+          console.log('Notification and SMS processing completed', { smsSent, smsError })
+        } catch (notificationError) {
+          // Log error but don't fail the request
+          console.error('Error creating notification or sending SMS:', notificationError)
+        }
 
         return NextResponse.json({
           success: true,
@@ -265,7 +463,7 @@ async function generateVesselCertificate(recertification: RecertificationData): 
       { label: 'Length Overall:', value: recertification.vessel?.lengthOverall ? `${recertification.vessel.lengthOverall}m` : 'N/A' },
       { label: 'Gross Tonnage:', value: recertification.vessel?.grossTonnage?.toString() || 'N/A' },
       { label: 'Issue Date:', value: new Date().toLocaleDateString() },
-      { label: 'Expiry Date:', value: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString() }
+      { label: 'Expiry Date:', value: new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toLocaleDateString() }
     ]
 
     let yPosition = height - 150
@@ -325,7 +523,7 @@ async function generateVesselCertificate(recertification: RecertificationData): 
     })
 
     // Footer
-    page.drawText('This certificate is valid for one year from the issue date.', {
+    page.drawText('This certificate is valid for five years from the issue date.', {
       x: 50,
       y: 100,
       size: 10,

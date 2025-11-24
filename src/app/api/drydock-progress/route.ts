@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
+import crypto from 'crypto'
 
 const prisma = new PrismaClient()
 
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest) {
     
     const serviceId = formData.get('serviceId') as string
     const progress = parseInt(formData.get('progress') as string)
-    const comment = formData.get('comment') as string
+    const comment = (formData.get('comment') as string) || ''
     const image = formData.get('image') as File | null
 
     if (!serviceId || !progress) {
@@ -69,6 +70,67 @@ export async function POST(request: NextRequest) {
       where: { id: serviceId },
       data: { progress }
     })
+
+    // Fetch booking and request information to send notification to shipowner
+    const serviceWithBooking = await prisma.$queryRaw<Array<{
+      serviceName: string;
+      userId: string;
+      vesselId: string;
+      vesselName: string;
+      companyName: string;
+      shipyardName: string;
+    }>>`
+      SELECT 
+        ds.serviceName,
+        db.userId,
+        dr.vesselId,
+        dr.vesselName,
+        dr.companyName,
+        db_bid.shipyardName
+      FROM drydock_services ds
+      LEFT JOIN drydock_bookings db ON ds.drydockBookingId = db.id
+      LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
+      LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
+      WHERE ds.id = ${serviceId}
+    `
+
+    if (serviceWithBooking && serviceWithBooking.length > 0) {
+      const serviceInfo = serviceWithBooking[0]
+      
+      // Create notification message for shipowner
+      const shipownerMessage = `Dear **${serviceInfo.companyName || 'Valued Customer'}**,
+
+We would like to inform you that progress has been updated for the **${serviceInfo.serviceName}** service on your vessel **${serviceInfo.vesselName}**.
+
+The shipyard **${serviceInfo.shipyardName}** has updated the progress to **${progress}%** (${progressLevel}).
+
+${comment && comment.trim() ? `**Update Details:**\n${comment}\n\n` : ''}You can view the detailed progress updates through your dashboard.
+
+If you have any questions or need assistance, please feel free to contact us.
+
+Thank you for using our services.
+
+Best regards,
+**Maritime Industry Authority**`
+
+      const notificationId = crypto.randomUUID()
+
+      // Create notification for shipowner
+      await prisma.$executeRaw`
+        INSERT INTO drydock_mc_notifications (
+          id, userId, vesselId, drydockReport, drydockCertificate, 
+          safetyCertificate, vesselPlans, title, type, message, 
+          isRead, createdAt, updatedAt
+        ) VALUES (
+          ${notificationId}, ${serviceInfo.userId}, ${serviceInfo.vesselId}, 
+          0, 0, 0, 0,
+          'Service Progress Updated', 'Progress Update',
+          ${shipownerMessage}, 0, NOW(), NOW()
+        )
+      `
+
+      console.log('Shipowner notification created successfully:', notificationId)
+    }
 
     return NextResponse.json({
       success: true,

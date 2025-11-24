@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Ship } from "lucide-react"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/contexts/AuthContext"
@@ -109,6 +110,8 @@ export default function DrydockManagementPage() {
   const { user } = useAuth()
   const { toast } = useToast()
   const [showRequestForm, setShowRequestForm] = useState(false)
+  const [showServiceSelectionDialog, setShowServiceSelectionDialog] = useState(false)
+  const [showSquareMetersDialog, setShowSquareMetersDialog] = useState(false)
   const [showBrowseShipyard, setShowBrowseShipyard] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<{
     id: string;
@@ -140,8 +143,6 @@ export default function DrydockManagementPage() {
     serviceCalculations: Record<string, unknown>;
     totalBid: number;
     totalDays: number;
-    parallelDays: number;
-    sequentialDays: number;
     bidStatus: string;
     bidDate: string;
   }[]>([])
@@ -166,8 +167,6 @@ export default function DrydockManagementPage() {
     serviceCalculations: Record<string, unknown>;
     totalBid: number;
     totalDays: number;
-    parallelDays: number;
-    sequentialDays: number;
     bidStatus: string;
     bidDate: string;
   } | null>(null)
@@ -188,8 +187,6 @@ export default function DrydockManagementPage() {
     shipyardName: string;
     totalBid: number;
     totalDays: number;
-    parallelDays: number;
-    sequentialDays: number;
     bidStatus: string;
     servicesOffered: Record<string, unknown>;
     serviceCalculations: Record<string, unknown>;
@@ -559,6 +556,41 @@ export default function DrydockManagementPage() {
     }))
   }
 
+  const handleServiceSelectionContinue = () => {
+    if (form.servicesNeeded.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please select at least one service.",
+        variant: "destructive"
+      })
+      return
+    }
+    setShowServiceSelectionDialog(false)
+    setShowSquareMetersDialog(true)
+  }
+
+  const handleSquareMetersContinue = () => {
+    // Validate that all selected services have square meter areas
+    const missingAreas = form.servicesNeeded.filter(serviceName => {
+      const area = serviceAreas[serviceName]
+      return !area || area === '' || parseFloat(area) <= 0
+    })
+    
+    if (missingAreas.length > 0) {
+      toast({
+        title: "Error",
+        description: "Please specify square meters for all selected services.",
+        variant: "destructive"
+      })
+      return
+    }
+    setShowSquareMetersDialog(false)
+    // Reopen the request form if vessel is already selected
+    if (form.vesselId) {
+      setShowRequestForm(true)
+    }
+  }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null
     setForm(prev => ({ ...prev, scopeOfWork: file }))
@@ -679,8 +711,10 @@ export default function DrydockManagementPage() {
     try {
       setLoadingShipyards(true)
       const response = await fetch(`/api/shipowner/shipyards-with-bids?drydockRequestId=${drydockRequestId}`)
+      const data = await response.json()
+      
       if (response.ok) {
-        const data = await response.json()
+        // Success - set shipyards (could be empty array, which is normal)
         setShipyardsWithBids(data.shipyards || [])
         
         // Check which bids are already booked by this user
@@ -688,20 +722,27 @@ export default function DrydockManagementPage() {
           await checkBookedBids(drydockRequestId, user.id)
         }
       } else {
-        console.error('Failed to fetch shipyards with bids')
-        toast({
-          title: "Error",
-          description: "Failed to load shipyards. Please try again.",
-          variant: "destructive"
-        })
+        // Check if it's a 404 or empty result - don't show error
+        if (response.status === 404 || (data.shipyards && Array.isArray(data.shipyards) && data.shipyards.length === 0)) {
+          setShipyardsWithBids([])
+        } else if (response.status >= 500) {
+          // Only show error for actual server errors (500+)
+          console.error('Failed to fetch shipyards with bids')
+          toast({
+            title: "Error",
+            description: "Failed to load shipyards. Please try again.",
+            variant: "destructive"
+          })
+        } else {
+          // For other errors (400, etc.), just set empty array
+          setShipyardsWithBids([])
+        }
       }
     } catch (error) {
       console.error('Error fetching shipyards with bids:', error)
-      toast({
-        title: "Error",
-        description: "Error loading shipyards. Please try again.",
-        variant: "destructive"
-      })
+      // Don't show error toast - just set empty array
+      // Empty results are normal when there are no bids yet
+      setShipyardsWithBids([])
     } finally {
       setLoadingShipyards(false)
     }
@@ -752,8 +793,6 @@ export default function DrydockManagementPage() {
     serviceCalculations: Record<string, unknown>;
     totalBid: number;
     totalDays: number;
-    parallelDays: number;
-    sequentialDays: number;
     bidStatus: string;
     bidDate: string;
   }) => {
@@ -857,9 +896,6 @@ export default function DrydockManagementPage() {
   const handleViewBookedShipyards = () => {
     if (!selectedRequest?.id) return
     
-    // Close browse shipyards dialog first
-    setShowBrowseShipyard(false)
-    
     // Fetch booked shipyards and open dialog
     fetchBookedShipyards(selectedRequest.id)
     setOpenBookedShipyardsDialog(true)
@@ -868,8 +904,6 @@ export default function DrydockManagementPage() {
   const handleCloseBookedShipyardsDialog = () => {
     setOpenBookedShipyardsDialog(false)
     setBookedShipyards([])
-    // Reopen browse shipyards dialog
-    setShowBrowseShipyard(true)
   }
 
   const handleCancelBooking = (booking: {
@@ -948,8 +982,6 @@ export default function DrydockManagementPage() {
     shipyardName: string;
     totalBid: number;
     totalDays: number;
-    parallelDays: number;
-    sequentialDays: number;
     bidStatus: string;
     servicesOffered: Record<string, unknown>;
     serviceCalculations: Record<string, unknown>;
@@ -985,8 +1017,6 @@ export default function DrydockManagementPage() {
       serviceCalculations: booking.serviceCalculations || {},
       totalBid: booking.totalBid || 0,
       totalDays: booking.totalDays || 0,
-      parallelDays: booking.parallelDays || 0,
-      sequentialDays: booking.sequentialDays || 0,
       bidStatus: booking.bidStatus || 'PENDING',
       bidDate: booking.bidDate || new Date().toISOString()
     }
@@ -1014,8 +1044,6 @@ export default function DrydockManagementPage() {
     serviceCalculations: Record<string, unknown>;
     totalBid: number;
     totalDays: number;
-    parallelDays: number;
-    sequentialDays: number;
     bidStatus: string;
     bidDate: string;
   }) => {
@@ -1038,8 +1066,6 @@ export default function DrydockManagementPage() {
       serviceCalculations: shipyard.serviceCalculations || {},
       totalBid: shipyard.totalBid || 0,
       totalDays: shipyard.totalDays || 0,
-      parallelDays: shipyard.parallelDays || 0,
-      sequentialDays: shipyard.sequentialDays || 0,
       bidStatus: shipyard.bidStatus || 'PENDING',
       bidDate: shipyard.bidDate || new Date().toISOString()
     }
@@ -1178,12 +1204,32 @@ export default function DrydockManagementPage() {
                           <span className="text-sm text-gray-600">{request.imoNumber || 'N/A'}</span>
                         </TableCell>
                         <TableCell className="py-3 px-4">
-                          <span className="text-sm text-gray-600">
-                            {request.servicesNeeded && Array.isArray(request.servicesNeeded) 
-                              ? request.servicesNeeded.map((service: { name: string } | string) => typeof service === 'object' ? service.name : service).join(', ')
-                              : 'N/A'
-                            }
-                          </span>
+                          {request.servicesNeeded && Array.isArray(request.servicesNeeded) ? (
+                            (() => {
+                              const services = request.servicesNeeded.map((service: { name: string } | string) => typeof service === 'object' ? service.name : service)
+                              const displayServices = services.slice(0, 2)
+                              const remainingCount = services.length - 2
+                              const displayText = displayServices.join(', ') + (remainingCount > 0 ? ` +${remainingCount} more` : '')
+                              const fullText = services.join(', ')
+                              
+                              return services.length > 2 ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="text-sm text-gray-600 cursor-help">
+                                      {displayText}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-md !bg-white !text-gray-900 border border-gray-300 shadow-lg">
+                                    <p className="text-xs">{fullText}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <span className="text-sm text-gray-600">{fullText}</span>
+                              )
+                            })()
+                          ) : (
+                            <span className="text-sm text-gray-600">N/A</span>
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-3 px-4">
                           <Badge className={request.priorityLevel === 'EMERGENCY' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}>
@@ -1317,14 +1363,13 @@ export default function DrydockManagementPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="bg-[#134686] cursor-pointer text-white border-[#134686] hover:bg-[#134686]/90 hover:text-white px-3 py-1.5"
+                              className="bg-green-600 cursor-pointer text-white border-green-600 hover:bg-green-700 hover:text-white px-3 py-1.5"
                               onClick={() => {
                                 setSelectedRequest(request)
-                                setShowBrowseShipyard(true)
-                                fetchShipyardsWithBids(request.id)
+                                handleViewBookedShipyards()
                               }}
                             >
-                              Browse Bidders
+                              View Booked Shipyard
                             </Button>
                           )}
                         </TableCell>
@@ -1533,53 +1578,43 @@ export default function DrydockManagementPage() {
                   {/* Services Needed */}
                   <div className="space-y-3">
                     <Label>Services Needed</Label>
-                    {loadingServices ? (
-                      <div className="text-center py-4 text-gray-500">
-                        <p>Loading services...</p>
-                      </div>
-                    ) : userServices.length === 0 ? (
-                      <div className="text-center py-4 text-gray-500">
-                        <p>No services available.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {userServices.map((service) => (
-                          <div key={service.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                            <div className="flex items-center">
-                              <Checkbox
-                                id={service.id}
-                                checked={form.servicesNeeded.includes(service.name)}
-                                onCheckedChange={() => handleServiceToggle(service.name)}
-                                className="mr-3"
-                              />
-                              <div className="flex-1">
-                                <Label htmlFor={service.id} className="text-sm font-medium cursor-pointer select-none">
-                                  {service.name}
-                                </Label>
-                                <div className="text-xs text-gray-500 mt-1">
-                                  Price: ₱{parseFloat(service.price).toLocaleString('en-PH')} per {service.squareMeters} m²
-                                </div>
-                              </div>
-                            </div>
-                            {form.servicesNeeded.includes(service.name) && (
-                              <div className="mt-3 pl-6">
-                                <Label htmlFor={`area-${service.id}`} className="text-xs text-gray-600">
-                                  How many square meters?
-                                </Label>
-                                <Input
-                                  id={`area-${service.id}`}
-                                  className="mt-1"
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  placeholder="Enter square meters"
-                                  value={serviceAreas[service.name] || ''}
-                                  onChange={e => handleServiceAreaChange(service.name, e.target.value)}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-2 border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                      onClick={() => {
+                        setShowRequestForm(false)
+                        setShowServiceSelectionDialog(true)
+                      }}
+                    >
+                      {form.servicesNeeded.length > 0 
+                        ? `${form.servicesNeeded.length} service(s) selected` 
+                        : 'Select Services'}
+                    </Button>
+                    {form.servicesNeeded.length > 0 && (
+                      <div className="mt-2 p-3 bg-white border border-gray-300 rounded-md">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-gray-50">
+                              <TableHead className="text-sm font-semibold text-gray-900 border-b border-gray-300">Service Name</TableHead>
+                              <TableHead className="text-sm font-semibold text-gray-900 border-b border-gray-300">Square Meters</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {form.servicesNeeded.map((serviceName) => {
+                              const service = userServices.find(s => s.name === serviceName)
+                              const area = serviceAreas[serviceName] || '0'
+                              return (
+                                <TableRow key={serviceName} className="border-b border-gray-200">
+                                  <TableCell className="text-sm text-gray-700">{serviceName}</TableCell>
+                                  <TableCell className="text-sm text-gray-700 font-medium">
+                                    {area ? `${parseFloat(area).toLocaleString('en-PH')} m²` : 'Not specified'}
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
                       </div>
                     )}
                     {formErrors.servicesNeeded && <p className="text-red-500 text-xs mt-1">{formErrors.servicesNeeded}</p>}
@@ -1635,167 +1670,158 @@ export default function DrydockManagementPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Browse Shipyard Dialog */}
-        <Dialog open={showBrowseShipyard} onOpenChange={setShowBrowseShipyard}>
+        {/* Service Selection Dialog */}
+        <Dialog open={showServiceSelectionDialog} onOpenChange={setShowServiceSelectionDialog}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
             <DialogHeader className="bg-white">
-              <DialogTitle className="bg-white font-bold text-[#134686] text-xl">Browse Bidders</DialogTitle>
-              <DialogDescription className="bg-white text-gray-600">
-                Select a recommended bidder to book your drydock services for {selectedRequest?.vesselName || 'your vessel'}. Only recommended bidders are shown.
+              <DialogTitle className="bg-white font-bold text-[#134686]">Services Needed</DialogTitle>
+              <DialogDescription className="bg-white">
+                Select the services you need for your drydock request.
               </DialogDescription>
             </DialogHeader>
             
-            <div className="space-y-6 bg-white">
-                {/* Shipyard Selection Content */}
-                <div className="space-y-4">
-                  {/* Search Input */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Search:</label>
-                      <Input
-                        type="text"
-                        placeholder="Search by shipyard name, address, or services..."
-                        value={shipyardSearchTerm}
-                        onChange={(e) => setShipyardSearchTerm(e.target.value)}
-                        className="flex-1"
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleViewBookedShipyards}
-                        className="whitespace-nowrap bg-green-600 hover:bg-green-700 text-white border-green-600 hover:border-green-700"
-                      >
-                        View Booked Shipyard
-                      </Button>
-                    </div>
-                    {shipyardSearchTerm && shipyardsWithBids.length > 0 && (
-                      <p className="text-sm text-gray-500">
-                        Showing {filteredShipyards.length} of {shipyardsWithBids.length} recommended shipyards
-                      </p>
-                    )}
-                    {!shipyardSearchTerm && shipyardsWithBids.length > 0 && (
-                      <p className="text-sm text-gray-500">
-                        {shipyardsWithBids.length} recommended {shipyardsWithBids.length === 1 ? 'bidder' : 'bidders'} available
-                      </p>
-                    )}
-                  </div>
-                  
-                  {/* Shipyard List */}
-                {loadingShipyards ? (
-                  <div className="border border-gray-200 rounded-lg p-6 text-center">
-                    
-                    <p className="text-gray-500">Loading shipyards...</p>
-                  </div>
-                ) : shipyardsWithBids.length === 0 ? (
-                  <div className="border border-gray-200 rounded-lg p-6 text-center">
-                   
-                    <p className="text-gray-500">No recommended bidders available yet</p>
-                    <p className="text-sm text-gray-400 mt-2">Only recommended bidders are shown. Check back later when bidders have been recommended.</p>
-                  </div>
-                ) : filteredShipyards.length === 0 ? (
-                  <div className="border border-gray-200 rounded-lg p-6 text-center">
-                  
-                    <p className="text-gray-500">No shipyards match your search</p>
-                    <p className="text-sm text-gray-400 mt-2">Try adjusting your search terms</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredShipyards.map((shipyard, index) => (
-                      <div key={shipyard.bidId} className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm min-h-[280px]">
-                        <div className="flex items-start gap-4 mb-4">
-                          {/* Shipyard Logo */}
-                          <div className="flex-shrink-0">
-                            <ShipyardLogo 
-                              logoUrl={shipyard.shipyardLogoUrl} 
-                              shipyardName={shipyard.shipyardName}
-                            />
-                          </div>
-                          
-                          {/* Shipyard Info */}
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-xs text-gray-500 mb-1">Shipyard Name</p>
-                                <h3 className="font-bold text-base text-gray-900 truncate">{shipyard.shipyardName}</h3>
-                              </div>
-                              <div className="text-right">
-                                <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
-                                  <span className="text-sm font-medium text-gray-600">{index + 1}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Bid Details */}
-                        <div className="space-y-3 mb-4">
-                          <div className="flex justify-between items-center py-1">
-                            <span className="text-sm text-gray-600">Total Bid:</span>
-                            <span className="text-base font-bold text-green-600">₱{shipyard.totalBid.toLocaleString('en-PH')}</span>
-                          </div>
-                          
-                          <div className="flex justify-between items-center py-1">
-                            <span className="text-sm text-gray-600">Duration:</span>
-                            <span className="text-sm text-gray-900 font-medium">{shipyard.totalDays} days</span>
-                          </div>
-                          
-                          <div className="flex justify-between items-start py-1">
-                            <span className="text-sm text-gray-600">Services Offered:</span>
-                            <span className="text-sm text-gray-900 text-right max-w-[140px] leading-relaxed">
-                              {shipyard.servicesOffered && Array.isArray(shipyard.servicesOffered) 
-                                ? shipyard.servicesOffered.map((service: Record<string, unknown>) => service.name || service).join(', ')
-                                : 'N/A'
-                              }
-                            </span>
-                          </div>
-                          
-                          <div className="flex justify-between items-center py-1">
-                            <span className="text-sm text-gray-600">Bid Date:</span>
-                            <span className="text-sm text-gray-900 font-medium">
-                              {new Date(shipyard.bidDate).toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: '2-digit',
-                                day: '2-digit'
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        {/* Booking Status Display */}
-                        {bookedBidIds.has(shipyard.bidId) ? (
-                          <div className="w-full bg-green-100 border border-green-200 text-green-800 py-2 rounded-lg text-sm font-medium text-center">
-                            Already Booked
-                          </div>
-                        ) : cancelledBidIds.has(shipyard.bidId) ? (
-                          <div className="space-y-2">
-                            <div className="w-full bg-red-100 border border-red-200 text-red-800 py-2 rounded-lg text-sm font-medium text-center">
-                              Cancelled Booking
-                            </div>
-                            <Button
-                              className="w-full bg-[#134686] hover:bg-[#134686]/90 text-white py-2 rounded-lg text-sm font-medium"
-                              onClick={() => handleBookAgain(shipyard)}
-                            >
-                              Book Again
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button
-                            className="w-full bg-[#134686] hover:bg-[#134686]/90 text-white py-2 rounded-lg text-sm font-medium"
-                            onClick={() => handleViewBidInformation(shipyard)}
+            <div className="space-y-4 bg-white">
+              {loadingServices ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>Loading services...</p>
+                </div>
+              ) : userServices.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No services available.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {userServices.map((service) => (
+                    <div 
+                      key={service.id} 
+                      className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                        form.servicesNeeded.includes(service.name)
+                          ? 'border-[#134686] bg-blue-50'
+                          : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                      }`}
+                      onClick={() => handleServiceToggle(service.name)}
+                    >
+                      <div className="flex items-start">
+                        <Checkbox
+                          id={`select-${service.id}`}
+                          checked={form.servicesNeeded.includes(service.name)}
+                          onCheckedChange={() => handleServiceToggle(service.name)}
+                          className="mt-1 mr-3"
+                        />
+                        <div className="flex-1">
+                          <Label 
+                            htmlFor={`select-${service.id}`} 
+                            className="text-sm font-medium cursor-pointer select-none"
                           >
-                            View Full Information
-                          </Button>
-                        )}
+                            {service.name}
+                          </Label>
+                          <div className="text-xs text-gray-600 mt-2">
+                            <div className="font-semibold text-[#134686]">
+                              ₱{parseFloat(service.price).toLocaleString('en-PH')}
+                            </div>
+                            <div className="text-gray-500 mt-1">
+                              per {service.squareMeters} m²
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-             
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            <DialogFooter className="bg-white">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowServiceSelectionDialog(false)
+                  // Return to request drydock dialog if vessel is already selected
+                  if (form.vesselId) {
+                    setShowRequestForm(true)
+                  }
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="bg-[#134686] hover:bg-[#134686]/90 text-white"
+                onClick={handleServiceSelectionContinue}
+              >
+                Continue
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Square Meters Dialog */}
+        <Dialog open={showSquareMetersDialog} onOpenChange={setShowSquareMetersDialog}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="bg-white font-bold text-[#134686]">Specify Square Meters</DialogTitle>
+              <DialogDescription className="bg-white">
+                Enter the square meters for each selected service.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 bg-white">
+              {form.servicesNeeded.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No services selected. Please go back and select services.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {form.servicesNeeded.map((serviceName) => {
+                    const service = userServices.find(s => s.name === serviceName)
+                    if (!service) return null
+                    
+                    return (
+                      <div key={service.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`area-${service.id}`} className="text-sm font-medium">
+                            {service.name}
+                          </Label>
+                          <div className="text-xs text-gray-500 mb-2">
+                            Price: ₱{parseFloat(service.price).toLocaleString('en-PH')} per {service.squareMeters} m²
+                          </div>
+                          <Input
+                            id={`area-${service.id}`}
+                            type="number"
+                            min="0"
+                            className="bg-gray-50"
+                            step="any"
+                            placeholder="Enter square meters"
+                            value={serviceAreas[serviceName] || ''}
+                            onChange={e => handleServiceAreaChange(serviceName, e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="bg-white">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowSquareMetersDialog(false)
+                  setShowServiceSelectionDialog(true)
+                }}
+              >
+                Back
+              </Button>
+              <Button
+                className="bg-[#134686] hover:bg-[#134686]/90 text-white"
+                onClick={handleSquareMetersContinue}
+              >
+                Continue
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
 
 
         {/* Bid Information Dialog */}

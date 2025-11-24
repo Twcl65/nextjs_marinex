@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import crypto from 'crypto'
 
 export async function GET(req: NextRequest) {
   try {
@@ -38,8 +39,6 @@ export async function GET(req: NextRequest) {
         db_bid.shipyardName,
         db_bid.totalBid,
         db_bid.totalDays,
-        db_bid.parallelDays,
-        db_bid.sequentialDays,
         db_bid.status as bidStatus,
         db_bid.servicesOffered,
         db_bid.serviceCalculations,
@@ -89,8 +88,6 @@ export async function GET(req: NextRequest) {
         shipyardName: string;
         totalBid: number;
         totalDays: number;
-        parallelDays: number;
-        sequentialDays: number;
         bidStatus: string;
         servicesOffered: Record<string, unknown>;
         serviceCalculations: Record<string, unknown>;
@@ -127,8 +124,6 @@ export async function GET(req: NextRequest) {
         shipyardName: booking.shipyardName,
         totalBid: booking.totalBid,
         totalDays: booking.totalDays,
-        parallelDays: booking.parallelDays,
-        sequentialDays: booking.sequentialDays,
         bidStatus: booking.bidStatus,
         servicesOffered: booking.servicesOffered,
         serviceCalculations: booking.serviceCalculations,
@@ -180,6 +175,64 @@ export async function PATCH(req: NextRequest) {
           SET dr.status = 'IN_PROGRESS', dr.updatedAt = NOW()
           WHERE db.id = ${bookingId}
         `
+
+        // Fetch booking details for notification
+        const bookingDetails = await tx.$queryRaw<Array<{
+          userId: string;
+          vesselId: string;
+          vesselName: string;
+          imoNumber: string;
+          companyName: string;
+          shipyardName: string;
+        }>>`
+          SELECT 
+            db.userId,
+            dr.vesselId,
+            dr.vesselName,
+            dr.imoNumber,
+            dr.companyName,
+            db_bid.shipyardName
+          FROM drydock_bookings db
+          LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
+          LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
+          WHERE db.id = ${bookingId}
+        `
+
+        if (bookingDetails && bookingDetails.length > 0) {
+          const booking = bookingDetails[0]
+          
+          // Create notification message for shipowner
+          const shipownerMessage = `Dear **${booking.companyName || 'Valued Customer'}**,
+
+We are pleased to inform you that your booking for **${booking.vesselName}** has been confirmed by **${booking.shipyardName}**.
+
+Your drydock booking is now confirmed and the shipyard will proceed with the scheduled services. You can track the progress of your drydock operations through your dashboard.
+
+If you have any questions or need assistance, please feel free to contact us.
+
+Thank you for using our services.
+
+Best regards,
+**Maritime Industry Authority**`
+
+          const notificationId = crypto.randomUUID()
+
+          // Create notification for shipowner
+          await tx.$executeRaw`
+            INSERT INTO drydock_mc_notifications (
+              id, userId, vesselId, drydockReport, drydockCertificate, 
+              safetyCertificate, vesselPlans, title, type, message, 
+              isRead, createdAt, updatedAt
+            ) VALUES (
+              ${notificationId}, ${booking.userId}, ${booking.vesselId}, 
+              0, 0, 0, 0,
+              'Booking Confirmed', 'Booking Confirmation',
+              ${shipownerMessage}, 0, NOW(), NOW()
+            )
+          `
+
+          console.log('Shipowner notification created successfully:', notificationId)
+        }
       }
 
       return updatedBooking

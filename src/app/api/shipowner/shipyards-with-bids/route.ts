@@ -33,8 +33,6 @@ export async function GET(req: NextRequest) {
         db.serviceCalculations,
         db.totalBid,
         db.totalDays,
-        db.parallelDays,
-        db.sequentialDays,
         db.status as bidStatus,
         db.submittedAt as bidDate,
         u.logoUrl as userLogoUrl
@@ -67,8 +65,6 @@ export async function GET(req: NextRequest) {
         serviceCalculations: Record<string, unknown>;
         totalBid: number;
         totalDays: number;
-        parallelDays: number;
-        sequentialDays: number;
         bidStatus: string;
         bidDate: Date;
         userLogoUrl: string | null;
@@ -90,8 +86,6 @@ export async function GET(req: NextRequest) {
           serviceCalculations: shipyard.serviceCalculations,
           totalBid: shipyard.totalBid,
           totalDays: shipyard.totalDays,
-          parallelDays: shipyard.parallelDays,
-          sequentialDays: shipyard.sequentialDays,
           bidStatus: shipyard.bidStatus,
           bidDate: shipyard.bidDate
         }))

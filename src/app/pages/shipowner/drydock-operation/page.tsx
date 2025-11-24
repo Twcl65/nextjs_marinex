@@ -141,6 +141,16 @@ export default function DrydockOperationPage() {
   const [error, setError] = useState<string | null>(null)
   const [previousBooking, setPreviousBooking] = useState<BookedShipyard | null>(null)
   const [currentShipyardName, setCurrentShipyardName] = useState<string>('')
+  const [isCertificatesDialogOpen, setIsCertificatesDialogOpen] = useState(false)
+  const [certificates, setCertificates] = useState<Array<{
+    id: string
+    certificateName: string
+    certificateType: string
+    certificateUrl: string | null
+    issuedDate: string
+  }>>([])
+  const [loadingCertificates, setLoadingCertificates] = useState(false)
+  const [selectedBookingForCertificates, setSelectedBookingForCertificates] = useState<BookedShipyard | null>(null)
   
   // Pagination state
   const [rowsPerPage, setRowsPerPage] = useState(5)
@@ -210,71 +220,80 @@ export default function DrydockOperationPage() {
   }
 
   const handleDownloadCertificates = async (booking: BookedShipyard) => {
+    setSelectedBookingForCertificates(booking)
+    setLoadingCertificates(true)
+    setIsCertificatesDialogOpen(true)
+    
     try {
       // Fetch certificates for this booking
       const response = await fetch(`/api/shipowner/booking-certificates?bookingId=${booking.id}`)
       const data = await response.json()
 
       if (!data.success || !data.data || data.data.length === 0) {
-        alert('No certificates found for this booking.')
+        setCertificates([])
         return
       }
 
-      const certificates = data.data
-
-      // Download each certificate
-      for (const certificate of certificates) {
-        if (!certificate.certificateUrl) {
-          console.warn(`Certificate ${certificate.certificateName} has no URL`)
-          continue
-        }
-
-        try {
-          // Get signed URL for S3 files
-          let downloadUrl = certificate.certificateUrl
-          
-          if (!certificate.certificateUrl.includes('?') && certificate.certificateUrl.includes('s3.')) {
-            const signedUrlResponse = await fetch(`/api/signed-url?url=${encodeURIComponent(certificate.certificateUrl)}`)
-            
-            if (signedUrlResponse.ok) {
-              const signedUrlData = await signedUrlResponse.json()
-              if (signedUrlData.signedUrl) {
-                downloadUrl = signedUrlData.signedUrl
-              }
-            }
-          }
-
-          // Extract filename from URL or use certificate name
-          let filename = `${certificate.certificateName || 'Certificate'}.pdf`
-          try {
-            const urlParts = certificate.certificateUrl.split('/')
-            const lastPart = urlParts[urlParts.length - 1]
-            if (lastPart && lastPart.includes('.')) {
-              const fileNamePart = lastPart.split('?')[0]
-              filename = fileNamePart || filename
-            }
-          } catch {
-            // Use default filename if extraction fails
-          }
-
-          // Create a temporary anchor element to trigger download
-          const link = document.createElement('a')
-          link.href = downloadUrl
-          link.download = filename
-          link.target = '_blank'
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-
-          // Add a small delay between downloads to avoid browser blocking
-          await new Promise(resolve => setTimeout(resolve, 500))
-        } catch (error) {
-          console.error(`Error downloading certificate ${certificate.certificateName}:`, error)
-        }
-      }
+      setCertificates(data.data)
     } catch (error) {
       console.error('Error fetching certificates:', error)
-      alert('Failed to download certificates. Please try again.')
+      setCertificates([])
+    } finally {
+      setLoadingCertificates(false)
+    }
+  }
+
+  const handleDownloadCertificate = async (certificate: {
+    id: string
+    certificateName: string
+    certificateType: string
+    certificateUrl: string | null
+    issuedDate: string
+  }) => {
+    if (!certificate.certificateUrl) {
+      alert(`Certificate ${certificate.certificateName} is not available.`)
+      return
+    }
+
+    try {
+      // Get signed URL for S3 files
+      let downloadUrl = certificate.certificateUrl
+      
+      if (!certificate.certificateUrl.includes('?') && certificate.certificateUrl.includes('s3.')) {
+        const signedUrlResponse = await fetch(`/api/signed-url?url=${encodeURIComponent(certificate.certificateUrl)}`)
+        
+        if (signedUrlResponse.ok) {
+          const signedUrlData = await signedUrlResponse.json()
+          if (signedUrlData.signedUrl) {
+            downloadUrl = signedUrlData.signedUrl
+          }
+        }
+      }
+
+      // Extract filename from URL or use certificate name
+      let filename = `${certificate.certificateName || 'Certificate'}.pdf`
+      try {
+        const urlParts = certificate.certificateUrl.split('/')
+        const lastPart = urlParts[urlParts.length - 1]
+        if (lastPart && lastPart.includes('.')) {
+          const fileNamePart = lastPart.split('?')[0]
+          filename = fileNamePart || filename
+        }
+      } catch {
+        // Use default filename if extraction fails
+      }
+
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = filename
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (error) {
+      console.error(`Error downloading certificate ${certificate.certificateName}:`, error)
+      alert('Failed to download certificate. Please try again.')
     }
   }
 
@@ -875,8 +894,75 @@ export default function DrydockOperationPage() {
                 )}
               </div>
             )}
-            
            
+            
+          </DialogContent>
+        </Dialog>
+
+        {/* Certificates Dialog */}
+        <Dialog open={isCertificatesDialogOpen} onOpenChange={setIsCertificatesDialogOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-[#134686]">
+                Issued Certificates
+              </DialogTitle>
+              <DialogDescription>
+                Certificates issued by the shipyard for this drydock operation
+              </DialogDescription>
+            </DialogHeader>
+
+            {loadingCertificates ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#134686]"></div>
+                  <p className="text-sm text-gray-600">Loading certificates...</p>
+                </div>
+              </div>
+            ) : certificates.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg">No certificates found</p>
+                <p className="text-sm text-gray-400 mt-1">Certificates will appear here once they are issued by the shipyard</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {certificates.map((certificate) => (
+                  <div
+                    key={certificate.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900 text-lg mb-1">
+                          {certificate.certificateName}
+                        </h3>
+                        <p className="text-sm text-gray-500">
+                          Issued on: {new Date(certificate.issuedDate).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          })}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Type: {certificate.certificateType.replace(/_/g, ' ')}
+                        </p>
+                      </div>
+                      <div className="ml-4">
+                        <Button
+                          onClick={() => handleDownloadCertificate(certificate)}
+                          disabled={!certificate.certificateUrl}
+                          className="bg-[#134686] hover:bg-[#0f3a6d] text-white flex items-center gap-2"
+                        >
+                          <Download className="h-4 w-4" />
+                          Download
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            
           </DialogContent>
         </Dialog>
       </SidebarInset>

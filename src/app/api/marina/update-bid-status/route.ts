@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { BidStatus } from '@prisma/client'
 import crypto from 'crypto'
 
 export async function POST(req: NextRequest) {
@@ -12,41 +13,125 @@ export async function POST(req: NextRequest) {
 
     console.log('Updating bid status:', { bidderId, status })
 
-    // Get the bid with drydock request information before updating
-    const bid = await prisma.drydockBid.findUnique({
-      where: { id: bidderId },
-      include: {
-        drydockRequest: {
-          include: {
-            vessel: true,
-            user: true
-          }
-        }
-      }
-    })
+    // Validate status value first
+    const validStatuses = Object.values(BidStatus)
+    const statusValue = status.trim().toUpperCase()
+    if (!validStatuses.includes(statusValue as BidStatus)) {
+      return NextResponse.json({ error: `Invalid status "${status}". Must be one of: ${validStatuses.join(', ')}` }, { status: 400 })
+    }
 
-    if (!bid) {
+    // Get the bid with drydock request information using raw SQL to avoid enum validation issues
+    const bidResult = await prisma.$queryRaw<Array<{
+      id: string;
+      drydockRequestId: string;
+      shipyardUserId: string;
+      shipyardName: string;
+      status: string;
+    }>>`
+      SELECT 
+        id,
+        drydockRequestId,
+        shipyardUserId,
+        shipyardName,
+        status
+      FROM drydock_bids
+      WHERE id = ${bidderId}
+      LIMIT 1
+    `
+
+    if (!bidResult || bidResult.length === 0) {
       return NextResponse.json({ error: 'Bid not found' }, { status: 404 })
     }
 
-    // Update the bid status in the database using Prisma's update method
-    const updatedBid = await prisma.drydockBid.update({
-      where: {
-        id: bidderId
-      },
-      data: {
-        status: status as 'SUBMITTED' | 'UNDER_REVIEW' | 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN' | 'RECOMMENDED'
-      }
-    })
+    const bid = bidResult[0]
 
-    console.log('Bid status updated successfully:', updatedBid)
+    // Get drydock request information separately
+    const drydockRequestResult = await prisma.$queryRaw<Array<{
+      id: string;
+      userId: string;
+      vesselId: string;
+      vesselName: string;
+    }>>`
+      SELECT 
+        dr.id,
+        dr.userId,
+        dr.vesselId,
+        dr.vesselName
+      FROM drydock_requests dr
+      WHERE dr.id = ${bid.drydockRequestId}
+      LIMIT 1
+    `
+
+    if (!drydockRequestResult || drydockRequestResult.length === 0) {
+      return NextResponse.json({ error: 'Drydock request not found' }, { status: 404 })
+    }
+
+    const drydockRequest = drydockRequestResult[0]
+
+    // Get vessel information
+    const vesselResult = await prisma.$queryRaw<Array<{
+      id: string;
+      vesselName: string;
+    }>>`
+      SELECT 
+        id,
+        vesselName
+      FROM ship_vessels
+      WHERE id = ${drydockRequest.vesselId}
+      LIMIT 1
+    `
+
+    const vessel = vesselResult && vesselResult.length > 0 ? vesselResult[0] : null
+
+    // Get user information
+    const userResult = await prisma.$queryRaw<Array<{
+      id: string;
+      fullName: string;
+    }>>`
+      SELECT 
+        id,
+        fullName
+      FROM users
+      WHERE id = ${drydockRequest.userId}
+      LIMIT 1
+    `
+
+    const shipowner = userResult && userResult.length > 0 ? userResult[0] : null
+
+    // Update the bid status using raw SQL to avoid Prisma trying to access non-existent columns
+    try {
+      // Use Prisma.sql for proper enum handling
+      await prisma.$executeRawUnsafe(
+        `UPDATE drydock_bids SET status = ? WHERE id = ?`,
+        statusValue,
+        bidderId
+      )
+      console.log('Bid status updated successfully using raw SQL:', { bidderId, status: statusValue })
+    } catch (updateError) {
+      console.error('Failed to update bid status:', updateError)
+      throw new Error(`Database update failed: ${updateError instanceof Error ? updateError.message : 'Unknown error'}`)
+    }
+
+    // Fetch the updated bid using raw SQL to avoid enum validation issues
+    const updatedBidResult = await prisma.$queryRaw<Array<{
+      id: string;
+      status: string;
+      updatedAt: Date;
+    }>>`
+      SELECT 
+        id,
+        status,
+        updatedAt
+      FROM drydock_bids
+      WHERE id = ${bidderId}
+      LIMIT 1
+    `
+
+    const updatedBid = updatedBidResult && updatedBidResult.length > 0 ? updatedBidResult[0] : null
 
     // Create notifications if status is RECOMMENDED
-    if (status === 'RECOMMENDED' && bid.drydockRequest) {
+    if (statusValue === 'RECOMMENDED' && drydockRequest) {
       try {
-        const drydockRequest = bid.drydockRequest
-        const vessel = drydockRequest.vessel
-        const shipowner = drydockRequest.user
         const shipyardName = bid.shipyardName || 'Shipyard'
 
         // Get shipyard user info for the notification
@@ -128,18 +213,20 @@ Best regards,
     return NextResponse.json({ 
       success: true, 
       message: 'Bid status updated successfully',
-      updatedBid 
+      bidId: updatedBid?.id,
+      status: updatedBid?.status
     }, { status: 200 })
   } catch (error) {
     console.error('Error updating bid status:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error('Error details:', {
-      message: error instanceof Error ? error.message : 'Unknown error',
+      message: errorMessage,
       stack: error instanceof Error ? error.stack : undefined
     })
     return NextResponse.json(
       { 
-        error: 'Failed to update bid status',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMessage || 'Failed to update bid status. Please check the server logs for details.',
+        details: errorMessage
       },
       { status: 500 }
     )

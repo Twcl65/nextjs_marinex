@@ -87,7 +87,10 @@ export async function GET(req: NextRequest) {
       // Recent Bids
       prisma.drydockBid.findMany({
         where: {
-          shipyardUserId: shipyardUserId
+          shipyardUserId: shipyardUserId,
+          status: {
+            in: ['SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED', 'WITHDRAWN', 'RECOMMENDED']
+          }
         },
         select: {
           id: true,

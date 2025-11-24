@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import crypto from 'crypto'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import jsPDF from 'jspdf'
 
 export async function GET(request: NextRequest) {
   try {
@@ -104,7 +107,14 @@ export async function PATCH(request: NextRequest) {
     // Get the authority request with related data
     const authorityRequest = await prisma.drydockAuthorityRequest.findUnique({
       where: { id: requestId },
-      include: {
+      select: {
+        id: true,
+        vesselId: true,
+        userId: true,
+        status: true,
+        requestDate: true,
+        finalScopeOfWorkUrl: true,
+        authorityCertificate: true,
         drydockRequest: {
           select: {
             vesselName: true,
@@ -116,6 +126,7 @@ export async function PATCH(request: NextRequest) {
         },
         user: {
           select: {
+            id: true,
             fullName: true,
             email: true,
             contactNumber: true
@@ -151,31 +162,44 @@ export async function PATCH(request: NextRequest) {
 
         console.log('Generating certificate for authority request:', requestId)
         
-        // Call the certificate generation API
-        // Use absolute URL for server-side fetch
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+        // Generate PDF directly
+        const pdfBuffer = await generatePDFFromData(certificateData)
         
-        const certificateResponse = await fetch(`${baseUrl}/api/generate-authority-certificate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        // Upload to S3 using proxy upload pattern (server-side, no CORS issues)
+        const bucketName = process.env.AWS_S3_BUCKET
+        const region = process.env.AWS_REGION || 'ap-southeast-2'
+        
+        if (!bucketName) {
+          console.error('AWS_S3_BUCKET environment variable is not set')
+          throw new Error('File upload configuration error')
+        }
+
+        const s3Client = new S3Client({
+          region: region,
+          credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
           },
-          body: JSON.stringify({
-            authorityRequestId: requestId,
-            certificateData: certificateData
-          })
         })
 
-        if (certificateResponse.ok) {
-          const certificateResult = await certificateResponse.json()
-          certificateUrl = certificateResult.certificateUrl
-          console.log('Certificate generated successfully, URL:', certificateUrl)
-        } else {
-          const errorText = await certificateResponse.text().catch(() => 'Unknown error')
-          console.error('Failed to generate certificate:', certificateResponse.status, errorText)
-          throw new Error(`Certificate generation failed: ${errorText}`)
-        }
+        // Generate unique filename
+        const timestamp = Date.now()
+        const filename = `authority-certificates/cert-${requestId}-${timestamp}.pdf`
+        
+        // Upload to S3
+        const uploadCommand = new PutObjectCommand({
+          Bucket: bucketName,
+          Key: filename,
+          Body: pdfBuffer,
+          ContentType: 'application/pdf',
+        })
+
+        await s3Client.send(uploadCommand)
+        
+        // Generate the S3 URL
+        certificateUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${filename}`
+        
+        console.log('Certificate generated and uploaded successfully:', certificateUrl)
       } catch (error) {
         console.error('Error generating certificate:', error)
         // Don't throw - allow status update even if certificate generation fails
@@ -225,6 +249,48 @@ export async function PATCH(request: NextRequest) {
     
     console.log('Database updated successfully. Certificate URL saved:', updatedRequest.authorityCertificate)
 
+    // Send notification to shipowner when request is approved
+    if (status === 'APPROVED' && authorityRequest) {
+      try {
+        // Create notification message for shipowner
+        const shipownerMessage = `Dear **${authorityRequest.drydockRequest.companyName || 'Valued Customer'}**,
+
+We are pleased to inform you that your authority request for **${authorityRequest.drydockRequest.vesselName}** (IMO: ${authorityRequest.drydockRequest.imoNumber}) has been **approved** by the Maritime Industry Authority.
+
+${certificateUrl ? 'Your authority certificate has been generated and is now available for download through your dashboard.' : 'Your request has been approved and is being processed.'}
+
+You can view and download your authority certificate through your dashboard.
+
+If you have any questions or need assistance, please feel free to contact us.
+
+Thank you for using our services.
+
+Best regards,
+**Maritime Industry Authority**`
+
+        const notificationId = crypto.randomUUID()
+
+        // Create notification for shipowner
+        await prisma.$executeRaw`
+          INSERT INTO drydock_mc_notifications (
+            id, userId, vesselId, drydockReport, drydockCertificate, 
+            safetyCertificate, vesselPlans, title, type, message, 
+            isRead, createdAt, updatedAt
+          ) VALUES (
+            ${notificationId}, ${authorityRequest.userId}, ${authorityRequest.vesselId}, 
+            0, 0, 0, 0,
+            'Authority Request Approved', 'Authority Approval',
+            ${shipownerMessage}, 0, NOW(), NOW()
+          )
+        `
+
+        console.log('Shipowner notification created successfully:', notificationId)
+      } catch (notificationError) {
+        console.error('Error creating notification for shipowner:', notificationError)
+        // Don't fail the request if notification creation fails
+      }
+    }
+
     return NextResponse.json({
       success: true,
       authorityRequest: updatedRequest
@@ -237,4 +303,94 @@ export async function PATCH(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+// Helper function to generate PDF from certificate data using jsPDF
+async function generatePDFFromData(certificateData: {
+  certificateNumber: string;
+  vesselName: string;
+  imoNumber: string;
+  companyName: string;
+  shipType: string;
+  flag: string;
+  requestDate: Date | string;
+  approvedDate: Date | string;
+  validUntil: Date | string;
+}): Promise<Buffer> {
+  const doc = new jsPDF()
+  
+  // Set up the document
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  
+  // Header
+  doc.setFontSize(20)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(19, 70, 134) // #134686
+  doc.text('AUTHORITY APPROVAL CERTIFICATE', pageWidth / 2, 30, { align: 'center' })
+  
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 100, 100)
+  doc.text('Marine Industry Authority - Marina Portal', pageWidth / 2, 40, { align: 'center' })
+  
+  // Draw a line under the header
+  doc.setDrawColor(19, 70, 134)
+  doc.setLineWidth(1)
+  doc.line(50, 50, pageWidth - 50, 50)
+  
+  // Certificate number box
+  doc.setFillColor(240, 240, 240)
+  doc.rect(50, 60, pageWidth - 100, 15, 'F')
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(0, 0, 0)
+  doc.text(`Certificate Number: ${certificateData.certificateNumber}`, pageWidth / 2, 70, { align: 'center' })
+  
+  // Certificate details
+  let yPosition = 100
+  const lineHeight = 15
+  
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'normal')
+  
+  const requestDate = certificateData.requestDate instanceof Date 
+    ? certificateData.requestDate 
+    : new Date(certificateData.requestDate)
+  const approvedDate = certificateData.approvedDate instanceof Date 
+    ? certificateData.approvedDate 
+    : new Date(certificateData.approvedDate)
+  const validUntil = certificateData.validUntil instanceof Date 
+    ? certificateData.validUntil 
+    : new Date(certificateData.validUntil)
+  
+  const details = [
+    { label: 'Vessel Name:', value: certificateData.vesselName },
+    { label: 'IMO Number:', value: certificateData.imoNumber },
+    { label: 'Company:', value: certificateData.companyName },
+    { label: 'Ship Type:', value: certificateData.shipType },
+    { label: 'Flag:', value: certificateData.flag },
+    { label: 'Request Date:', value: requestDate.toLocaleDateString() },
+    { label: 'Approved Date:', value: approvedDate.toLocaleDateString() },
+    { label: 'Valid Until:', value: validUntil.toLocaleDateString() }
+  ]
+  
+  details.forEach(detail => {
+    doc.setFont('helvetica', 'bold')
+    doc.text(detail.label, 60, yPosition)
+    doc.setFont('helvetica', 'normal')
+    doc.text(detail.value, 60 + doc.getTextWidth(detail.label) + 5, yPosition)
+    yPosition += lineHeight
+  })
+  
+  // Footer
+  yPosition = pageHeight - 60
+  doc.setFontSize(10)
+  doc.setTextColor(100, 100, 100)
+  doc.text('This certificate is valid for drydock operations as approved by the Marine Industry Authority.', pageWidth / 2, yPosition, { align: 'center' })
+  doc.text(`Generated on ${new Date().toLocaleDateString()}`, pageWidth / 2, yPosition + 10, { align: 'center' })
+  
+  // Convert to buffer
+  const pdfOutput = doc.output('arraybuffer')
+  return Buffer.from(pdfOutput)
 }

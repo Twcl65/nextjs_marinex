@@ -11,9 +11,13 @@ export async function POST(req: NextRequest) {
       serviceCalculations,
       totalBid,
       totalDays,
-      parallelDays,
-      sequentialDays,
-      bidCertificateUrl
+      bidCertificateUrl,
+      pricingBreakdown,
+      scheduleDetails,
+      contractConditions,
+      taxesAndFees,
+      additionalCosts,
+      requiredDocumentation
     } = body
 
     // Fetch shipyard user information
@@ -47,8 +51,9 @@ export async function POST(req: NextRequest) {
         id, drydockRequestId, shipyardUserId, shipyardName, shipyardAddress, 
         shipyardContactNumber, shipyardContactPerson, shipyardBusinessReg, 
         shipyardLogoUrl, certificateBuilder, certificateRepair, certificateOther,
-        bidCertificateUrl, servicesOffered, serviceCalculations, totalBid, totalDays, 
-        parallelDays, sequentialDays, status, submittedAt, updatedAt
+        bidCertificateUrl, servicesOffered, serviceCalculations, totalBid, totalDays,
+        pricingBreakdown, scheduleDetails, contractConditions, taxesAndFees,
+        additionalCosts, requiredDocumentation, status, submittedAt, updatedAt
       ) VALUES (
         ${bidId}, ${drydockRequestId}, ${shipyardUserId}, 
         ${shipyardUser.shipyardName || 'Unknown Shipyard'}, 
@@ -63,7 +68,13 @@ export async function POST(req: NextRequest) {
         ${bidCertificateUrl || null},
         ${JSON.stringify(servicesOffered)}, 
         ${JSON.stringify(serviceCalculations)}, 
-        ${totalBid}, ${totalDays}, ${parallelDays}, ${sequentialDays}, 
+        ${totalBid}, ${totalDays},
+        ${pricingBreakdown ? JSON.stringify(pricingBreakdown) : null},
+        ${scheduleDetails ? JSON.stringify(scheduleDetails) : null},
+        ${contractConditions ? JSON.stringify(contractConditions) : null},
+        ${taxesAndFees ? JSON.stringify(taxesAndFees) : null},
+        ${additionalCosts ? JSON.stringify(additionalCosts) : null},
+        ${requiredDocumentation ? JSON.stringify(requiredDocumentation) : null},
         'SUBMITTED', NOW(), NOW()
       )
     `

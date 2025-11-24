@@ -107,6 +107,11 @@ export async function GET() {
           }
         }),
         prisma.drydockBid.findMany({
+          where: {
+            status: {
+              in: ['SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED', 'WITHDRAWN', 'RECOMMENDED']
+            }
+          },
           take: 5,
           orderBy: { submittedAt: 'desc' },
           select: {

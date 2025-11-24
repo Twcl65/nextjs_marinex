@@ -372,8 +372,8 @@ export default function ShipyardBiddingPage() {
             setLoadingRecommend(true);
             
             // Update each selected bidder's status to RECOMMENDED
-            const updatePromises = selectedBidders.map(bidderId => 
-                fetch('/api/marina/update-bid-status', {
+            const updatePromises = selectedBidders.map(async (bidderId) => {
+                const response = await fetch('/api/marina/update-bid-status', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -382,8 +382,16 @@ export default function ShipyardBiddingPage() {
                         bidderId: bidderId,
                         status: 'RECOMMENDED'
                     })
-                })
-            );
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const errorMsg = errorData.error || errorData.details || `Failed to update bid ${bidderId}`;
+                    throw new Error(errorMsg);
+                }
+
+                return response.json();
+            });
 
             await Promise.all(updatePromises);
             
@@ -395,13 +403,14 @@ export default function ShipyardBiddingPage() {
             ));
             
             // Reset selection and close dialogs
+            const successCount = selectedBidders.length;
             setSelectedBidders([]);
             setOpenRecommendDialog(false);
             setOpenBiddersDialog(false);
             
             toast({
                 title: "Success!",
-                description: `${selectedBidders.length} bidder${selectedBidders.length > 1 ? 's have' : ' has'} been successfully recommended.`,
+                description: `${successCount} bidder${successCount > 1 ? 's have' : ' has'} been successfully recommended.`,
                 action: (
                     <div className="flex items-center space-x-2">
                         <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center">
@@ -413,9 +422,14 @@ export default function ShipyardBiddingPage() {
             });
         } catch (error) {
             console.error('Error updating bid status:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            // Don't duplicate "Failed to update bid status" if it's already in the message
+            const displayMessage = errorMessage.includes('Failed to update') 
+                ? errorMessage 
+                : `Failed to update bid status: ${errorMessage}`;
             toast({
                 title: "Error",
-                description: "Failed to update bid status. Please try again.",
+                description: `${displayMessage}. Please try again.`,
                 variant: "destructive",
             });
         } finally {
@@ -517,10 +531,10 @@ export default function ShipyardBiddingPage() {
                                 <TableHeader className="bg-gray-50">
                                     <TableRow>
                                         <TableHead className="min-w-[150px] py-3">Company</TableHead>
-                                        <TableHead className="min-w-[200px] py-3">Vessel</TableHead>
+                                        <TableHead className="min-w-[150px] py-3">Vessel</TableHead>
                                         <TableHead className="w-20 py-3">Priority</TableHead>
                                         <TableHead className="min-w-[150px] py-3">Services Needed</TableHead>
-                                        <TableHead className="min-w-[120px] py-3">Request Date</TableHead>
+                                        <TableHead className="min-w-[120px] py-3">Date</TableHead>
                                         <TableHead className="min-w-[100px] py-3">Status</TableHead>
                                         <TableHead className="w-20 py-3">Actions</TableHead>
                                     </TableRow>
@@ -555,7 +569,7 @@ export default function ShipyardBiddingPage() {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="py-3">
-                                                <span className="text-sm text-gray-600 truncate block max-w-[200px]" title={getNormalizedNeededServices(request).join(', ')}>
+                                                <span className="text-sm text-gray-600 truncate block max-w-[150px]" title={getNormalizedNeededServices(request).join(', ')}>
                                                     {getNormalizedNeededServices(request).length > 0 ? (
                                                         getNormalizedNeededServices(request).map(service => service.replace(/\s*-\s*\d+$/, '')).join(', ')
                                                     ) : (

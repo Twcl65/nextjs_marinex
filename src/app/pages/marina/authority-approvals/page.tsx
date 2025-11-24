@@ -373,17 +373,21 @@ export default function AuthorityApprovalsPage() {
                         )}
                       </TableCell>
                         <TableCell className="py-3 text-center">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 w-8 p-0 bg-[#134686] border-[#134686] hover:bg-[#0f3a6e] hover:border-[#0f3a6e]"
-                            onClick={() => {
-                              setSelectedRequest(request)
-                              setShowDetailsDialog(true)
-                            }}
-                          >
-                            <CheckCircle className="h-4 w-4 text-white" />
-                          </Button>
+                          {request.status === 'APPROVED' ? (
+                            <span className="text-xs font-medium text-gray-500">Closed</span>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-8 p-0 bg-[#134686] border-[#134686] hover:bg-[#0f3a6e] hover:border-[#0f3a6e]"
+                              onClick={() => {
+                                setSelectedRequest(request)
+                                setShowDetailsDialog(true)
+                              }}
+                            >
+                              <CheckCircle className="h-4 w-4 text-white" />
+                            </Button>
+                          )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -573,7 +577,7 @@ export default function AuthorityApprovalsPage() {
               <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>
                 Close
               </Button>
-              {selectedRequest && selectedRequest.status === 'REQUESTED' && (
+              {selectedRequest && (selectedRequest.status === 'REQUESTED' || selectedRequest.status === 'PENDING') && (
                 <Button 
                   onClick={() => {
                     setShowDetailsDialog(false)

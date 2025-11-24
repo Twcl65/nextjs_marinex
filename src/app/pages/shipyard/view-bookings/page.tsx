@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Ship, ChevronLeft, ChevronRight } from "lucide-react"
+import { Ship, ChevronLeft, ChevronRight, Calendar } from "lucide-react"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -42,8 +42,6 @@ interface DrydockBooking {
   shipyardName: string
   totalBid: number
   totalDays: number
-  parallelDays: number
-  sequentialDays: number
   bidStatus: 'SUBMITTED' | 'UNDER_REVIEW' | 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN' | 'RECOMMENDED'
   servicesOffered: Record<string, unknown>
   serviceCalculations: Record<string, unknown>
@@ -122,9 +120,10 @@ export default function ViewBookingsPage() {
   const [selectedServices, setSelectedServices] = useState<Record<string, { squareMeters: number; price: number; days: number }>>({})
   const [workDays, setWorkDays] = useState<Date[]>([])
   const [totalWorkDays, setTotalWorkDays] = useState(0)
-  const [isEditingSchedule, setIsEditingSchedule] = useState(false)
   const [scheduleStartDate, setScheduleStartDate] = useState<Date | null>(null)
   const [scheduleDuration, setScheduleDuration] = useState(50)
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false)
+  const [draftScheduleDate, setDraftScheduleDate] = useState<Date | null>(null)
   const [serviceSchedules, setServiceSchedules] = useState<Array<{
     serviceName: string
     startDate: Date
@@ -198,6 +197,68 @@ export default function ViewBookingsPage() {
     setCurrentPage(page)
   }
 
+  const openScheduleDialog = () => {
+    const defaultDate = scheduleStartDate ?? workDays[0] ?? new Date()
+    setDraftScheduleDate(defaultDate)
+    setScheduleDialogOpen(true)
+  }
+
+  const handleScheduleSave = () => {
+    if (!draftScheduleDate) {
+      toast({
+        variant: "destructive",
+        title: "Invalid date",
+        description: "Please select a valid start date.",
+      })
+      return
+    }
+
+    setScheduleStartDate(draftScheduleDate)
+    calculateWorkDays(draftScheduleDate, scheduleDuration)
+    toast({
+      variant: "success",
+      title: "Schedule Updated",
+      description: "Work schedule has been updated successfully.",
+    })
+    setScheduleDialogOpen(false)
+  }
+
+  const regenerateServiceSchedules = (
+    workDaysSource: Date[],
+    servicesMap: Record<string, { squareMeters: number; price: number; days: number }> = selectedServices
+  ) => {
+    const serviceColors = ['green-500', 'blue-500', 'purple-500', 'orange-500', 'red-500', 'yellow-500']
+    const updatedSchedules: Array<{
+      serviceName: string
+      startDate: Date
+      endDate: Date
+      color: string
+    }> = []
+
+    let currentDateIndex = 0
+
+    Object.entries(servicesMap).forEach(([serviceName, service], index) => {
+      const requiredDays = service?.days || 0
+      if (requiredDays <= 0 || currentDateIndex >= workDaysSource.length) {
+        return
+      }
+
+      const serviceWorkDays = workDaysSource.slice(currentDateIndex, currentDateIndex + requiredDays)
+
+      if (serviceWorkDays.length > 0) {
+        updatedSchedules.push({
+          serviceName,
+          startDate: serviceWorkDays[0],
+          endDate: serviceWorkDays[serviceWorkDays.length - 1],
+          color: serviceColors[index % serviceColors.length]
+        })
+        currentDateIndex += serviceWorkDays.length
+      }
+    })
+
+    setServiceSchedules(updatedSchedules)
+  }
+
   const handleEditBooking = (booking: DrydockBooking) => {
     setSelectedBooking(booking)
     setEditDialogOpen(true)
@@ -259,47 +320,13 @@ export default function ViewBookingsPage() {
     setWorkDays(validWorkDays)
     setTotalWorkDays(totalDays)
     
-    // Generate service schedules with different colors
-    const serviceColors = ['green-500', 'blue-500', 'purple-500', 'orange-500', 'red-500', 'yellow-500']
-    const generatedServiceSchedules: Array<{
-      serviceName: string
-      startDate: Date
-      endDate: Date
-      color: string
-    }> = []
-    
-    let currentDateIndex = 0
-    Object.entries(initialServices).forEach(([serviceName, service], index) => {
-      if (service.days > 0) {
-        const serviceDays = []
-        let daysAdded = 0
-        
-        // Get the required number of work days for this service
-        while (daysAdded < service.days && currentDateIndex < validWorkDays.length) {
-          serviceDays.push(validWorkDays[currentDateIndex])
-          currentDateIndex++
-          daysAdded++
-        }
-        
-        if (serviceDays.length > 0) {
-          generatedServiceSchedules.push({
-            serviceName: serviceName, // Use the actual service name
-            startDate: serviceDays[0],
-            endDate: serviceDays[serviceDays.length - 1],
-            color: serviceColors[index % serviceColors.length]
-          })
-        }
-      }
-    })
-    
     console.log('Services data:', services)
     console.log('Calculations data:', calculations)
     console.log('Initial services:', initialServices)
     console.log('Booking date used as start:', selectedBooking.bookingDate)
-    console.log('Generated service schedules:', generatedServiceSchedules)
     console.log('Valid work days:', validWorkDays)
-    
-    setServiceSchedules(generatedServiceSchedules)
+
+    regenerateServiceSchedules(validWorkDays, initialServices)
     setEditDialogOpen(false)
     setServicesDialogOpen(true)
     
@@ -308,7 +335,6 @@ export default function ViewBookingsPage() {
       setScheduleStartDate(validWorkDays[0])
       setScheduleDuration(totalDays)
     }
-    setIsEditingSchedule(false)
   }
 
   const handleServicesConfirm = () => {
@@ -546,6 +572,18 @@ export default function ViewBookingsPage() {
 
     setWorkDays(workDays)
     setTotalWorkDays(workDays.length)
+    regenerateServiceSchedules(workDays)
+  }
+
+  const formatScheduleDate = (value: Date | string | null | undefined) => {
+    if (!value) return 'No date selected'
+    const parsedDate = value instanceof Date ? value : new Date(value)
+    if (isNaN(parsedDate.getTime())) return 'No date selected'
+    return parsedDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
   }
 
   const getStatusColor = (status: string) => {
@@ -553,7 +591,7 @@ export default function ViewBookingsPage() {
       case 'PENDING':
         return 'bg-yellow-100 text-yellow-800'
       case 'CONFIRMED':
-        return 'bg-green-100 text-green-800'
+        return 'bg-blue-100 text-blue-800'
       case 'IN_PROGRESS':
         return 'bg-orange-100 text-orange-800'
       case 'COMPLETED':
@@ -730,14 +768,18 @@ export default function ViewBookingsPage() {
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="bg-blue-600 cursor-pointer text-white border-blue-600 hover:bg-blue-700 hover:text-white h-7 px-3 text-xs whitespace-nowrap"
-                            onClick={() => handleEditBooking(booking)}
-                          >
-                            View Information
-                          </Button>
+                          {booking.status === 'COMPLETED' ? (
+                            <span className="text-sm font-medium text-gray-500">Closed</span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-blue-600 text-white border-blue-600 hover:bg-blue-700 hover:text-white h-7 px-3 text-xs whitespace-nowrap"
+                              onClick={() => handleEditBooking(booking)}
+                            >
+                              View Information
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
@@ -1046,124 +1088,64 @@ export default function ViewBookingsPage() {
             
             {selectedBooking && (
               <div className="space-y-6 overflow-x-hidden">
-                {/* Main Content - Single Column Layout */}
-                <div className="space-y-4">
-                  {/* Work Schedule Summary */}
-                  <div className="text-center py-4">
-                    <label className="text-lg font-semibold text-gray-800">Work Schedule Summary</label>
-                    <p className="text-sm text-gray-600 mt-1">Total Duration: {totalWorkDays} days (excluding Sundays)</p>
-                  </div>
-                </div>
 
                 {/* Individual Services Section */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold">Service Schedule Details</h3>
-                  {serviceSchedules.map((schedule, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-4">
-                      <div className="mb-0">
-                        <h4 className="font-medium text-gray-800 text-lg">{schedule.serviceName}</h4>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label className="text-xs font-normal text-black mb-1 block">Start Date</Label>
-                          <div className="p-2 bg-gray-50 border border-gray-300 rounded text-sm">
-                            {schedule.startDate.toLocaleDateString('en-US', { 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
-                            })}
-                          </div>
-                        </div>
-                        <div>
-                          <Label className="text-xs font-normal text-black mb-1 block">End Date</Label>
-                          <div className="p-2 bg-gray-50 border border-gray-300 rounded text-sm">
-                            {schedule.endDate.toLocaleDateString('en-US', { 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-gray-600">Individual Service Schedule Details</p>
+                  </div>
+                  <div className="border border-gray-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-600 text-left">
+                        <tr>
+                          <th className="px-4 py-2 font-medium">Service</th>
+                          <th className="px-4 py-2 font-medium">Start Date</th>
+                          <th className="px-4 py-2 font-medium">End Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {serviceSchedules.map((schedule, index) => (
+                          <tr key={index} className="border-t border-gray-100">
+                            <td className="px-4 py-2 font-medium text-gray-900">{schedule.serviceName}</td>
+                            <td className="px-4 py-2">{formatScheduleDate(schedule.startDate)}</td>
+                            <td className="px-4 py-2">{formatScheduleDate(schedule.endDate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Duration Section - Full Width Below */}
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-md font-semibold">Total Duration:</h3>
-                    {isEditingSchedule ? (
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setIsEditingSchedule(false)
-                            // Reset to original values
-                            if (workDays.length > 0) {
-                              setScheduleStartDate(workDays[0])
-                            }
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setIsEditingSchedule(false)
-                            toast({
-                              variant: "success",
-                              title: "Schedule Updated",
-                              description: "Work schedule has been updated successfully.",
-                            })
-                          }}
-                        >
-                          Save Schedule
-                        </Button>
-                      </div>
-                    ) : (
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">Total Duration</h3>
+                      <p className="text-sm text-gray-600">Overall work window (excluding Sundays).</p>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => setIsEditingSchedule(true)}
+                        className="bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
+                        onClick={openScheduleDialog}
                       >
+                        <Calendar className="w-4 h-4 mr-2 text-gray-600" />
                         Edit Schedule
                       </Button>
-                    )}
+                    </div>
                   </div>
                   
-                  {isEditingSchedule && (
-                    <div className="p-0">
-                      <div className="grid grid-cols-1 gap-4 mb-4">
-                        <div>
-                          <Label className="text-xs font-normal text-black mb-1 block">Start Date</Label>
-                          <Input
-                            type="date"
-                            value={scheduleStartDate ? scheduleStartDate.toISOString().split('T')[0] : ''}
-                            onChange={(e) => {
-                              const date = new Date(e.target.value)
-                              setScheduleStartDate(date)
-                              calculateWorkDays(date, scheduleDuration)
-                            }}
-                            className="border-gray-300"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <Label className="text-xs font-normal text-black mb-1 block">Duration</Label>
-                      <div className="p-2 bg-gray-50 border border-gray-300 rounded text-sm font-medium">
+                      <div className="p-2 border border-gray-200 rounded text-sm font-medium">
                         {totalWorkDays} days
                       </div>
                     </div>
                     <div>
                       <Label className="text-xs font-normal text-black mb-1 block">Start Date</Label>
-                      <div className="p-2 bg-gray-50 border border-gray-300 rounded text-sm">
+                      <div className="p-2 border border-gray-200 rounded text-sm">
                         {workDays.length > 0 ? workDays[0].toLocaleDateString('en-US', { 
                           year: 'numeric', 
                           month: 'long', 
@@ -1173,7 +1155,7 @@ export default function ViewBookingsPage() {
                     </div>
                     <div>
                       <Label className="text-xs font-normal text-black mb-1 block">End Date</Label>
-                      <div className="p-2 bg-gray-50 border border-gray-300 rounded text-sm">
+                      <div className="p-2 border border-gray-200 rounded text-sm">
                         {workDays.length > 0 ? workDays[workDays.length - 1].toLocaleDateString('en-US', { 
                           year: 'numeric', 
                           month: 'long', 
@@ -1199,10 +1181,63 @@ export default function ViewBookingsPage() {
                   Back
                 </Button>
                 <Button 
-                  className="bg-green-600 hover:bg-green-700 text-white border-green-600" 
+                  className="bg-green-600 hover:bg-green-700 text-white border-green-600 cursor-pointer" 
                   onClick={handleServicesConfirm}
                 >
                   Proceed to Confirm
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Schedule Edit Dialog */}
+        <Dialog open={scheduleDialogOpen} onOpenChange={(open) => {
+          setScheduleDialogOpen(open)
+          if (!open) {
+            setDraftScheduleDate(null)
+          }
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-[#134686]">Edit Work Schedule</DialogTitle>
+              <DialogDescription>
+                You only need to edit the start date and the system will calculate the start and end dates automatically.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-2 space-y-4">
+              <div>
+                <Label className="text-xs font-normal text-black mb-1 block">Start Date</Label>
+                <Input
+                  type="date"
+                  value={draftScheduleDate ? draftScheduleDate.toISOString().split('T')[0] : ''}
+                  onChange={(e) => {
+                    const newDate = e.target.value ? new Date(e.target.value) : null
+                    setDraftScheduleDate(newDate && !isNaN(newDate.getTime()) ? newDate : null)
+                  }}
+                  className="border-gray-300"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="flex justify-center">
+              <div className="flex gap-3">
+                <Button 
+                  className="bg-gray-500 cursor-pointer hover:bg-gray-600 text-white border-gray-500"
+                  onClick={() => {
+                    setScheduleDialogOpen(false)
+                    setDraftScheduleDate(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  className="bg-green-600 cursor-pointer hover:bg-green-700 text-white border-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleScheduleSave}
+                  disabled={!draftScheduleDate}
+                >
+                  Save Schedule
                 </Button>
               </div>
             </DialogFooter>
@@ -1284,7 +1319,7 @@ export default function ViewBookingsPage() {
 
             <DialogFooter className="flex justify-center">
               <div className="flex gap-3">
-                <Button className="bg-gray-500 hover:bg-gray-600 text-white border-gray-500" onClick={() => {
+                <Button className="bg-gray-500 cursor-pointer hover:bg-gray-600 text-white border-gray-500" onClick={() => {
                   setCancelDialogOpen(false)
                   setEditDialogOpen(true)
                   setCancelReason("")

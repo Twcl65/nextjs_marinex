@@ -44,6 +44,57 @@ interface Service {
   progress: number
 }
 
+const CompanyAvatar = ({ logoUrl, name }: { logoUrl: string | null; name: string }) => {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const fetchSignedUrl = async () => {
+      if (!logoUrl || logoUrl === 'null' || logoUrl.trim() === '') {
+        setSignedUrl(null)
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/signed-url?url=${encodeURIComponent(logoUrl)}`)
+        const data = await response.json()
+        if (isMounted && data?.signedUrl) {
+          setSignedUrl(data.signedUrl)
+        }
+      } catch (error) {
+        console.error('Error fetching signed logo URL:', error)
+        if (isMounted) {
+          setSignedUrl(null)
+        }
+      }
+    }
+
+    fetchSignedUrl()
+
+    return () => {
+      isMounted = false
+    }
+  }, [logoUrl])
+
+  return (
+    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-gray-300">
+      {signedUrl ? (
+        <img
+          src={signedUrl}
+          alt={name}
+          className="w-full h-full object-cover"
+          onError={() => setSignedUrl(null)}
+        />
+      ) : (
+        <span className="text-xs font-medium text-gray-600">
+          {name?.charAt(0) || 'S'}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function DrydockOperationsPage() {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -86,6 +137,7 @@ export default function DrydockOperationsPage() {
     drydockReport: false,
     drydockCertificate: false
   })
+  const [vesselPlansFile, setVesselPlansFile] = useState<File | null>(null)
   const [issuingCertificates, setIssuingCertificates] = useState(false)
 
   const calculateBookingProgress = async (bookingId: string): Promise<number> => {
@@ -109,6 +161,43 @@ export default function DrydockOperationsPage() {
     }
   }
 
+  const getBookingDatesFromServices = async (bookingId: string, bookingDate: string, totalDays: number): Promise<{ startDate: string; endDate: string }> => {
+    try {
+      const response = await fetch(`/api/drydock-services?drydockBookingId=${bookingId}`)
+      const data = await response.json()
+      
+      if (data.success && data.data && data.data.length > 0) {
+        // Find the earliest start date and latest end date from all services
+        const startDates: Date[] = data.data.map((service: { startDate: string }) => new Date(service.startDate))
+        const endDates: Date[] = data.data.map((service: { endDate: string }) => new Date(service.endDate))
+        
+        const startTimestamps = startDates.map((d: Date) => d.getTime())
+        const endTimestamps = endDates.map((d: Date) => d.getTime())
+        
+        const earliestStart = new Date(Math.min(...startTimestamps))
+        const latestEnd = new Date(Math.max(...endTimestamps))
+        
+        return {
+          startDate: earliestStart.toLocaleDateString('en-GB'),
+          endDate: latestEnd.toLocaleDateString('en-GB')
+        }
+      }
+      
+      // Fallback to booking date calculation if no services found
+      return {
+        startDate: new Date(bookingDate).toLocaleDateString('en-GB'),
+        endDate: new Date(new Date(bookingDate).getTime() + totalDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+      }
+    } catch (error) {
+      console.error('Error fetching service dates:', error)
+      // Fallback to booking date calculation on error
+      return {
+        startDate: new Date(bookingDate).toLocaleDateString('en-GB'),
+        endDate: new Date(new Date(bookingDate).getTime() + totalDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+      }
+    }
+  }
+
   const fetchBookings = useCallback(async () => {
     try {
       setLoading(true)
@@ -116,9 +205,12 @@ export default function DrydockOperationsPage() {
       const data = await response.json()
       
       if (data.success) {
-        // Filter for confirmed bookings and transform data
+        // Filter for confirmed bookings and exclude completed requests
         const confirmedBookingsPromises = data.bookings
-          .filter((booking: { status: string }) => booking.status === 'CONFIRMED')
+          .filter((booking: { status: string; requestStatus?: string }) => 
+            booking.status === 'CONFIRMED' && 
+            booking.requestStatus?.toUpperCase() !== 'COMPLETED'
+          )
           .map(async (booking: {
             id: string;
             status: string;
@@ -137,6 +229,8 @@ export default function DrydockOperationsPage() {
           }) => {
             // Calculate actual progress from services
             const progress = await calculateBookingProgress(booking.id)
+            // Get dates from services (first service start date and last service end date)
+            const dates = await getBookingDatesFromServices(booking.id, booking.bookingDate, booking.totalDays)
             
             return {
               id: booking.id,
@@ -148,8 +242,8 @@ export default function DrydockOperationsPage() {
               shipownerName: booking.shipownerName,
               shipownerLogoUrl: booking.shipownerLogoUrl,
               totalDays: booking.totalDays,
-              startDate: new Date(booking.bookingDate).toLocaleDateString('en-GB'),
-              endDate: new Date(new Date(booking.bookingDate).getTime() + booking.totalDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
+              startDate: dates.startDate,
+              endDate: dates.endDate,
               progress: progress, // Calculate from actual services
               shipyardName: booking.shipyardName,
               totalBid: booking.totalBid,
@@ -370,7 +464,11 @@ export default function DrydockOperationsPage() {
 
   const handleUpdateProgress = async () => {
     if (!selectedService || !progressLevel) {
-      alert('Please select a progress level')
+      toast({
+        title: "Validation Error",
+        description: "Please select a progress level",
+        variant: "destructive",
+      })
       return
     }
 
@@ -453,13 +551,24 @@ export default function DrydockOperationsPage() {
         setProgressImage(null)
         setShowNewUpdateForm(false)
         
-        alert('Progress updated successfully!')
+        toast({
+          title: "Progress Updated Successfully!",
+          description: `Progress has been updated to ${getProgressPercentage(progressLevel)}% for ${selectedService.name}.`,
+        })
       } else {
-        alert('Failed to update progress: ' + result.error)
+        toast({
+          title: "Error",
+          description: `Failed to update progress: ${result.error}`,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error updating progress:', error)
-      alert('Error updating progress')
+      toast({
+        title: "Error",
+        description: "An error occurred while updating progress. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setUpdatingProgress(false)
     }
@@ -510,6 +619,9 @@ export default function DrydockOperationsPage() {
       drydockReport: checked,
       drydockCertificate: checked
     })
+    if (!checked) {
+      setVesselPlansFile(null)
+    }
   }
 
   const handleCertificateChange = (certificate: 'vesselPlans' | 'drydockReport' | 'drydockCertificate', checked: boolean) => {
@@ -518,6 +630,11 @@ export default function DrydockOperationsPage() {
       [certificate]: checked
     }
     setSelectedCertificates(newSelected)
+    
+    // Clear file if vessel plans is unchecked
+    if (certificate === 'vesselPlans' && !checked) {
+      setVesselPlansFile(null)
+    }
     
     // Update select all based on all certificates being selected
     const allSelected = newSelected.vesselPlans && newSelected.drydockReport && newSelected.drydockCertificate
@@ -544,20 +661,33 @@ export default function DrydockOperationsPage() {
       return
     }
 
+    // Validate that if vessel plans is selected, a file must be uploaded
+    if (selectedCertificates.vesselPlans && !vesselPlansFile) {
+      toast({
+        title: "Validation Error",
+        description: "Please upload a file for Vessel Plans",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       setIssuingCertificates(true)
 
+      // Use FormData to handle file upload
+      const formData = new FormData()
+      formData.append('bookingId', selectedBooking.id)
+      formData.append('vesselPlans', selectedCertificates.vesselPlans.toString())
+      formData.append('drydockReport', selectedCertificates.drydockReport.toString())
+      formData.append('drydockCertificate', selectedCertificates.drydockCertificate.toString())
+      
+      if (selectedCertificates.vesselPlans && vesselPlansFile) {
+        formData.append('vesselPlansFile', vesselPlansFile)
+      }
+
       const response = await fetch('/api/shipyard/issue-certificates', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          bookingId: selectedBooking.id,
-          vesselPlans: selectedCertificates.vesselPlans,
-          drydockReport: selectedCertificates.drydockReport,
-          drydockCertificate: selectedCertificates.drydockCertificate
-        })
+        body: formData
       })
 
       const data = await response.json()
@@ -578,13 +708,14 @@ export default function DrydockOperationsPage() {
         // Close certificate dialog
         setIsCertificateDialogOpen(false)
         
-        // Reset checkboxes
+        // Reset checkboxes and file
         setSelectAllCertificates(false)
         setSelectedCertificates({
           vesselPlans: false,
           drydockReport: false,
           drydockCertificate: false
         })
+        setVesselPlansFile(null)
         
         // Refresh bookings to update progress
         await fetchBookings()
@@ -609,7 +740,7 @@ export default function DrydockOperationsPage() {
 
   const closeCertificateDialog = (open: boolean) => {
     setIsCertificateDialogOpen(open)
-    // Reset checkboxes when closing
+    // Reset checkboxes and file when closing
     if (!open) {
       setSelectAllCertificates(false)
       setSelectedCertificates({
@@ -617,12 +748,15 @@ export default function DrydockOperationsPage() {
         drydockReport: false,
         drydockCertificate: false
       })
+      setVesselPlansFile(null)
       // Reopen the services dialog if certificate dialog is being closed
       if (selectedBooking) {
         setIsDialogOpen(true)
       }
     }
   }
+
+  const shouldShowForm = existingProgress.length === 0 || showNewUpdateForm
 
   return (
     <ProtectedRoute allowedRoles={['SHIPYARD']}>
@@ -694,20 +828,8 @@ export default function DrydockOperationsPage() {
                     <CardContent className="px-4 py-1">
                       {/* Company Info */}
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                            {booking.companyLogoUrl ? (
-                              <img 
-                                src={booking.companyLogoUrl} 
-                                alt={booking.companyName}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <span className="text-xs font-medium text-gray-600">
-                                {booking.companyName.charAt(0)}
-                              </span>
-                            )}
-                          </div>
+                      <div className="flex items-center gap-3">
+                          <CompanyAvatar logoUrl={booking.companyLogoUrl} name={booking.companyName} />
                           <div>
                             <h3 className="font-semibold text-gray-900 text-sm">{booking.companyName}</h3>
                             <p className="text-xs text-gray-500">Shipowner</p>
@@ -774,39 +896,7 @@ export default function DrydockOperationsPage() {
 
               {selectedBooking && (
                 <div className="space-y-6">
-                  {/* Booking Summary */}
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Vessel Name</label>
-                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
-                        {selectedBooking.vesselName}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">IMO Number</label>
-                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
-                        {selectedBooking.imoNumber}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Start Date</label>
-                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
-                        {selectedBooking.startDate}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">End Date</label>
-                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
-                        {selectedBooking.endDate}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Initial Unit Cost</label>
-                      <div className="mt-1 p-2 bg-white border border-gray-200 rounded text-sm text-gray-900">
-                        ₱{selectedBooking.totalBid.toLocaleString()}.00
-                      </div>
-                    </div>
-                  </div>
+                  
 
                   {/* Services Table */}
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -903,154 +993,180 @@ export default function DrydockOperationsPage() {
               </DialogHeader>
 
               {selectedService && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Left Section - Progress Levels & History */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-800">Progress Level</h3>
-                    <div className="space-y-3">
-                      {['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'].map((level) => (
-                        <div key={level} className="flex items-center space-x-3">
-                          <input
-                            type="radio"
-                            id={level}
-                            name="progressLevel"
-                            value={level}
-                            checked={progressLevel === level}
-                            onChange={(e) => handleLevelChange(e.target.value)}
-                            className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300"
-                          />
-                          <label htmlFor={level} className="text-sm font-medium text-gray-700 cursor-pointer">
-                            {level} ({getProgressPercentage(level)}%)
-                          </label>
-                        </div>
-                      ))}
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Service</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">{selectedService.name}</p>
                     </div>
-
+                    <div className="border border-gray-200 rounded-lg p-4">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Start Date</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">{selectedService.startDate}</p>
+                    </div>
+                    <div className="border border-gray-200 rounded-lg p-4">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">End Date</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">{selectedService.endDate}</p>
+                    </div>
                   </div>
 
-                  {/* Right Section - Comments and Image */}
-                  <div className="space-y-4 md:col-span-2">
-                    <h3 className="text-lg font-semibold text-gray-800">Comments & Documentation</h3>
-                    
-                    {/* Show different content based on whether level has progress and if form is shown */}
-                    {existingProgress.length === 0 || showNewUpdateForm ? (
-                      /* Show input form when no progress exists OR when "Add new update" is clicked */
-                      <div className="space-y-4">
-                        {/* Comment Textarea */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Progress Comments
-                          </label>
-                          <textarea
-                            value={progressComment}
-                            onChange={(e) => setProgressComment(e.target.value)}
-                            placeholder="Add your progress comments here..."
-                            className="w-full p-3 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686] resize-none"
-                            rows={4}
-                          />
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="space-y-4">
+                      <div className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-base font-semibold text-gray-900">Progress Level</h3>
+                          {progressLevel && (
+                            <span className="text-xs font-medium text-gray-500">
+                              Selected: {getProgressPercentage(progressLevel)}%
+                            </span>
+                          )}
                         </div>
+                        <div className="space-y-3">
+                          {['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'].map((level) => (
+                            <label
+                              key={level}
+                              htmlFor={level}
+                              className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:border-[#134686] cursor-pointer transition-colors"
+                            >
+                              <input
+                                type="radio"
+                                id={level}
+                                name="progressLevel"
+                                value={level}
+                                checked={progressLevel === level}
+                                onChange={(e) => handleLevelChange(e.target.value)}
+                                className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300"
+                              />
+                              <span className="text-sm font-medium text-gray-700">
+                                {level} ({getProgressPercentage(level)}%)
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
 
-                        {/* Image Upload */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Progress Image (Optional)
-                          </label>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleImageChange}
-                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686]"
-                          />
-                          {progressImage && (
-                            <p className="text-sm text-gray-600 mt-1">
-                              Selected: {progressImage.name}
-                            </p>
+                      <div className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-base font-semibold text-gray-900">Progress History</h3>
+                          {existingProgress.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs border-[#134686] text-[#134686]"
+                              onClick={() => setShowNewUpdateForm(true)}
+                            >
+                              Add Update
+                            </Button>
+                          )}
+                        </div>
+                        {existingProgress.length > 0 ? (
+                          <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                            {existingProgress.map((progress) => (
+                              <div key={progress.id} className="border border-gray-100 rounded-md p-3 bg-white shadow-sm">
+                                <div className="flex justify-between items-start mb-2">
+                                  <div>
+                                    <span className="font-semibold text-gray-900 text-sm">{progress.progressLevel}</span>
+                                    <span className="text-xs text-gray-500 ml-2">({progress.progressPercent}%)</span>
+                                  </div>
+                                  <span className="text-xs text-gray-400">
+                                    {new Date(progress.updatedAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                {progress.comment && (
+                                  <p className="text-xs text-gray-700 bg-gray-50 p-2 rounded mb-2">
+                                    {progress.comment}
+                                  </p>
+                                )}
+                                {progress.imageUrl && (
+                                  <img
+                                    src={progress.imageUrl}
+                                    alt="Progress attachment"
+                                    className="w-full max-h-24 object-cover rounded border"
+                                  />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500">No logged updates for this level yet.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="lg:col-span-2">
+                      <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-base font-semibold text-gray-900">Comments & Documentation</h3>
+                            <p className="text-sm text-gray-500">Log detailed notes and upload supporting files.</p>
+                          </div>
+                          {existingProgress.length > 0 && showNewUpdateForm && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs text-gray-600"
+                              onClick={() => setShowNewUpdateForm(false)}
+                            >
+                              Cancel
+                            </Button>
                           )}
                         </div>
 
-                        {/* Update Button */}
-                        <div className="pt-4">
-                          <Button
-                            onClick={handleUpdateProgress}
-                            disabled={updatingProgress || !progressLevel}
-                            className="w-full"
-                            style={{ backgroundColor: '#134686', color: 'white' }}
-                          >
-                            {updatingProgress ? 'Updating...' : 'Update Progress'}
-                          </Button>
-                        </div>
+                        {shouldShowForm ? (
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Progress Comments
+                              </label>
+                              <textarea
+                                value={progressComment}
+                                onChange={(e) => setProgressComment(e.target.value)}
+                                placeholder="Describe the work completed, outstanding tasks, or blockers..."
+                                className="w-full p-3 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686] resize-none"
+                                rows={4}
+                              />
+                            </div>
 
-                        {/* Cancel Button - only show when adding new update to existing progress */}
-                        {existingProgress.length > 0 && showNewUpdateForm && (
-                          <div className="pt-2">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Progress Image (Optional)
+                              </label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleImageChange}
+                                className="w-full p-2 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686]"
+                              />
+                              {progressImage && (
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Selected: {progressImage.name}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="pt-2">
+                              <Button
+                                onClick={handleUpdateProgress}
+                                disabled={updatingProgress || !progressLevel}
+                                className="w-full bg-[#134686] hover:bg-[#0f3a6d] text-white"
+                              >
+                                {updatingProgress ? 'Updating...' : 'Update Progress'}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-600">
+                            <p>Progress entries already exist for this level. Select "Add Update" from the history panel to log another update.</p>
                             <Button
-                              onClick={() => setShowNewUpdateForm(false)}
+                              className="mt-4 border-[#134686] text-[#134686]"
                               variant="outline"
-                              className="w-full"
+                              onClick={() => setShowNewUpdateForm(true)}
                             >
-                              Cancel
+                              Add New Update
                             </Button>
                           </div>
                         )}
                       </div>
-                    ) : (
-                      /* Show progress history when level has progress and form is not shown */
-                      <div className="space-y-4">
-                        <div className="flex justify-start">
-                          <Button
-                            onClick={() => setShowNewUpdateForm(true)}
-                            variant="outline"
-                            className="border-[#134686] text-[#134686] hover:bg-[#134686] hover:text-white"
-                          >
-                            Add New Update
-                          </Button>
-                        </div>
-                        
-                        {/* Progress History - Display below Add New Update button */}
-                        <div className="mt-6">
-                          <h4 className="text-md font-semibold text-gray-800 mb-3">
-                            Progress History - {progressLevel}
-                          </h4>
-                          {existingProgress.length > 0 ? (
-                            <div className="space-y-3 max-h-60 overflow-y-auto">
-                              {existingProgress.map((progress) => (
-                                <div key={progress.id} className="border border-gray-200 rounded-lg p-3 bg-white">
-                                  <div className="flex justify-between items-start mb-2">
-                                    <div>
-                                      <span className="font-medium text-gray-800 text-sm">{progress.progressLevel}</span>
-                                      <span className="text-xs text-gray-600 ml-2">({progress.progressPercent}%)</span>
-                                    </div>
-                                    <span className="text-xs text-gray-500">
-                                      {new Date(progress.updatedAt).toLocaleDateString()}
-                                    </span>
-                                  </div>
-                                  
-                                  {progress.comment && (
-                                    <div className="mb-2">
-                                      <p className="text-xs text-gray-700 bg-gray-50 p-2 rounded">
-                                        {progress.comment}
-                                      </p>
-                                    </div>
-                                  )}
-                                  
-                                  {progress.imageUrl && (
-                                    <div>
-                                      <img 
-                                        src={progress.imageUrl} 
-                                        alt="Progress image" 
-                                        className="max-w-full max-h-20 object-cover rounded border"
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500">No progress history for {progressLevel} yet.</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1061,70 +1177,114 @@ export default function DrydockOperationsPage() {
 
           {/* Issue Certificates Dialog */}
           <Dialog open={isCertificateDialogOpen} onOpenChange={closeCertificateDialog}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle className="text-xl font-bold text-gray-900">
                   Issue Certificates
                 </DialogTitle>
                 <p className="text-sm text-gray-600 mt-2">
-                  Select the certificates you want to issue for this drydock operation.
+                  Upload or generate certificates for this drydock operation.
                 </p>
               </DialogHeader>
 
-              <div className="space-y-4 py-4">
-                {/* Select All Checkbox */}
-                <div className="flex items-center space-x-3 pb-3 border-b">
-                  <input
-                    type="checkbox"
-                    id="selectAll"
-                    checked={selectAllCertificates}
-                    onChange={(e) => handleSelectAllCertificates(e.target.checked)}
-                    className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
-                  />
-                  <label htmlFor="selectAll" className="text-sm font-semibold text-gray-900 cursor-pointer">
-                    Select All
-                  </label>
+              <div className="space-y-6 py-4">
+                {/* Upload Certificate Section */}
+                <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">Upload Certificate</h3>
+                      <p className="text-xs text-gray-500 mt-1">Upload an existing certificate file</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="flex items-start space-x-3">
+                      <input
+                        type="checkbox"
+                        id="vesselPlans"
+                        checked={selectedCertificates.vesselPlans}
+                        onChange={(e) => handleCertificateChange('vesselPlans', e.target.checked)}
+                        className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded mt-1"
+                      />
+                      <div className="flex-1">
+                        <label htmlFor="vesselPlans" className="text-sm font-medium text-gray-700 cursor-pointer block mb-2">
+                          Vessel Plans
+                        </label>
+                        {selectedCertificates.vesselPlans && (
+                          <div className="space-y-2">
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx,image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  setVesselPlansFile(file)
+                                }
+                              }}
+                              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#134686] file:text-white hover:file:bg-[#0f3a6d] cursor-pointer"
+                            />
+                            {vesselPlansFile && (
+                              <p className="text-xs text-gray-600 mt-1">
+                                Selected: <span className="font-medium">{vesselPlansFile.name}</span>
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Individual Certificate Checkboxes */}
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      id="vesselPlans"
-                      checked={selectedCertificates.vesselPlans}
-                      onChange={(e) => handleCertificateChange('vesselPlans', e.target.checked)}
-                      className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
-                    />
-                    <label htmlFor="vesselPlans" className="text-sm font-medium text-gray-700 cursor-pointer">
-                      Vessel Plans
-                    </label>
+                {/* Generate Certificates Section */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">Generate Certificates</h3>
+                      <p className="text-xs text-gray-500 mt-1">System will automatically generate these certificates</p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="selectAllGenerated"
+                        checked={selectedCertificates.drydockReport && selectedCertificates.drydockCertificate}
+                        onChange={(e) => {
+                          handleCertificateChange('drydockReport', e.target.checked)
+                          handleCertificateChange('drydockCertificate', e.target.checked)
+                        }}
+                        className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                      />
+                      <label htmlFor="selectAllGenerated" className="text-xs font-medium text-gray-600 cursor-pointer">
+                        Select All
+                      </label>
+                    </div>
                   </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        id="drydockReport"
+                        checked={selectedCertificates.drydockReport}
+                        onChange={(e) => handleCertificateChange('drydockReport', e.target.checked)}
+                        className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                      />
+                      <label htmlFor="drydockReport" className="text-sm font-medium text-gray-700 cursor-pointer">
+                        Drydock Report
+                      </label>
+                    </div>
 
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      id="drydockReport"
-                      checked={selectedCertificates.drydockReport}
-                      onChange={(e) => handleCertificateChange('drydockReport', e.target.checked)}
-                      className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
-                    />
-                    <label htmlFor="drydockReport" className="text-sm font-medium text-gray-700 cursor-pointer">
-                      Drydock Report
-                    </label>
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="checkbox"
-                      id="drydockCertificate"
-                      checked={selectedCertificates.drydockCertificate}
-                      onChange={(e) => handleCertificateChange('drydockCertificate', e.target.checked)}
-                      className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
-                    />
-                    <label htmlFor="drydockCertificate" className="text-sm font-medium text-gray-700 cursor-pointer">
-                      Drydock Certificate
-                    </label>
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        id="drydockCertificate"
+                        checked={selectedCertificates.drydockCertificate}
+                        onChange={(e) => handleCertificateChange('drydockCertificate', e.target.checked)}
+                        className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 rounded"
+                      />
+                      <label htmlFor="drydockCertificate" className="text-sm font-medium text-gray-700 cursor-pointer">
+                        Drydock Certificate
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>

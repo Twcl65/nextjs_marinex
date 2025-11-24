@@ -143,10 +143,66 @@ async function uploadCertificateToS3(pdfBuffer: Buffer, certificateId: string, c
   return certificateUrl
 }
 
+async function uploadFileToS3(file: File, certificateId: string, certificateName: string): Promise<string> {
+  const bucketName = process.env.AWS_S3_BUCKET
+  if (!bucketName) {
+    throw new Error('AWS_S3_BUCKET environment variable is not set')
+  }
+  
+  const fileExtension = file.name.split('.').pop() || 'pdf'
+  const fileName = `drydock-certificates/${certificateId}-${certificateName.replace(/\s+/g, '-')}-${Date.now()}.${fileExtension}`
+  
+  // Convert File to Buffer
+  const arrayBuffer = await file.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+  
+  // Determine content type
+  let contentType = file.type || 'application/pdf'
+  if (!contentType || contentType === 'application/octet-stream') {
+    if (fileExtension === 'pdf') contentType = 'application/pdf'
+    else if (fileExtension === 'doc') contentType = 'application/msword'
+    else if (fileExtension === 'docx') contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    else if (fileExtension === 'jpg' || fileExtension === 'jpeg') contentType = 'image/jpeg'
+    else if (fileExtension === 'png') contentType = 'image/png'
+  }
+  
+  const uploadCommand = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: fileName,
+    Body: buffer,
+    ContentType: contentType,
+  })
+  
+  await s3Client.send(uploadCommand)
+  
+  const certificateUrl = `https://${bucketName}.s3.${process.env.AWS_REGION || 'ap-southeast-2'}.amazonaws.com/${fileName}`
+  return certificateUrl
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { bookingId, vesselPlans, drydockReport, drydockCertificate } = body
+    // Handle FormData (for file uploads) or JSON
+    const contentType = req.headers.get('content-type') || ''
+    let bookingId: string
+    let vesselPlans: boolean
+    let drydockReport: boolean
+    let drydockCertificate: boolean
+    let vesselPlansFile: File | null = null
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData()
+      bookingId = formData.get('bookingId') as string
+      vesselPlans = formData.get('vesselPlans') === 'true'
+      drydockReport = formData.get('drydockReport') === 'true'
+      drydockCertificate = formData.get('drydockCertificate') === 'true'
+      vesselPlansFile = formData.get('vesselPlansFile') as File | null
+    } else {
+      const body = await req.json()
+      bookingId = body.bookingId
+      vesselPlans = body.vesselPlans
+      drydockReport = body.drydockReport
+      drydockCertificate = body.drydockCertificate
+    }
 
     if (!bookingId) {
       return NextResponse.json(
@@ -159,6 +215,14 @@ export async function POST(req: NextRequest) {
     if (!vesselPlans && !drydockReport && !drydockCertificate) {
       return NextResponse.json(
         { error: 'At least one certificate must be selected' },
+        { status: 400 }
+      )
+    }
+
+    // Validate that if vessel plans is selected, a file must be provided
+    if (vesselPlans && !vesselPlansFile) {
+      return NextResponse.json(
+        { error: 'Vessel Plans file is required when Vessel Plans is selected' },
         { status: 400 }
       )
     }
@@ -283,29 +347,37 @@ export async function POST(req: NextRequest) {
         const certificateId = crypto.randomUUID()
         const now = new Date()
         
-        // Generate PDF certificate - this is mandatory, fail if it doesn't work
+        // Handle Vessel Plans (uploaded file) vs other certificates (generated PDF)
         let certificateUrl: string | null = null
         try {
-          console.log(`Generating PDF for ${cert.name}...`)
-          const pdfBuffer = await generateCertificatePDF(
-            cert.name,
-            booking.vesselName,
-            booking.imoNumber,
-            vessel.user.fullName || vessel.user.email || 'Shipowner',
-            now,
-            shipyardName
-          )
-          
-          console.log(`Uploading PDF to S3 for ${cert.name}...`)
-          certificateUrl = await uploadCertificateToS3(pdfBuffer, certificateId, cert.name)
-          console.log(`PDF uploaded successfully. URL: ${certificateUrl}`)
+          if (cert.type === 'VESSEL_PLANS' && vesselPlansFile) {
+            // Upload the provided file for Vessel Plans
+            console.log(`Uploading file for ${cert.name}...`)
+            certificateUrl = await uploadFileToS3(vesselPlansFile, certificateId, cert.name)
+            console.log(`File uploaded successfully. URL: ${certificateUrl}`)
+          } else {
+            // Generate PDF certificate for other types
+            console.log(`Generating PDF for ${cert.name}...`)
+            const pdfBuffer = await generateCertificatePDF(
+              cert.name,
+              booking.vesselName,
+              booking.imoNumber,
+              vessel.user.fullName || vessel.user.email || 'Shipowner',
+              now,
+              shipyardName
+            )
+            
+            console.log(`Uploading PDF to S3 for ${cert.name}...`)
+            certificateUrl = await uploadCertificateToS3(pdfBuffer, certificateId, cert.name)
+            console.log(`PDF uploaded successfully. URL: ${certificateUrl}`)
+          }
         } catch (error) {
-          console.error(`Error generating/uploading PDF for ${cert.name}:`, error)
-          throw new Error(`Failed to generate PDF certificate for ${cert.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          console.error(`Error processing certificate for ${cert.name}:`, error)
+          throw new Error(`Failed to process certificate for ${cert.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
         
         if (!certificateUrl) {
-          throw new Error(`Certificate URL is null for ${cert.name} after PDF generation`)
+          throw new Error(`Certificate URL is null for ${cert.name} after processing`)
         }
         
         // Use raw SQL with proper column names (matching the migration)

@@ -11,55 +11,58 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import Image from 'next/image'
 
-// CompanyLogo component to handle S3 signed URLs
+// CompanyLogo component to handle S3 images using proxy to avoid CORS
 function CompanyLogo({ logoUrl, companyName }: { logoUrl?: string | null; companyName: string }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState(false)
 
   useEffect(() => {
+    // Reset error state when logoUrl changes
+    setImageError(false)
+    
     if (logoUrl && logoUrl !== 'null' && logoUrl.trim() !== '') {
-      setImageError(false)
-      
-      if (logoUrl.includes('s3.amazonaws.com')) {
-        // Fetch signed URL for S3 images
-        fetch(`/api/signed-url?url=${encodeURIComponent(logoUrl)}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.signedUrl) {
-              setImageUrl(data.signedUrl)
-            }
-          })
-          .catch(err => {
-            console.error('Error fetching signed URL:', err)
-            setImageUrl(logoUrl) // Fallback to original URL
-          })
+      if (logoUrl.includes('s3.amazonaws.com') || logoUrl.includes('amazonaws.com')) {
+        // Use proxy-image API to avoid CORS errors
+        const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(logoUrl)}`
+        setImageUrl(proxyUrl)
       } else {
         // For non-S3 URLs, use directly
         setImageUrl(logoUrl)
       }
     } else {
       setImageUrl(null)
-      setImageError(false)
     }
   }, [logoUrl])
 
-  if (imageError || !imageUrl) {
-    return (
-      <Avatar className='w-6 h-6'>
-        <AvatarFallback>{companyName?.[0] || '?'}</AvatarFallback>
-      </Avatar>
-    )
-  }
-
   return (
     <Avatar className='w-6 h-6'>
-      <AvatarImage src={imageUrl} alt={companyName} />
-      <AvatarFallback>{companyName?.[0] || '?'}</AvatarFallback>
+      {imageUrl && !imageError ? (
+        <AvatarImage 
+          src={imageUrl} 
+          alt={companyName}
+          onError={(e) => {
+            console.error('Failed to load logo:', imageUrl, logoUrl)
+            setImageError(true)
+            // Hide the image element on error
+            const target = e.target as HTMLImageElement
+            if (target) {
+              target.style.display = 'none'
+            }
+          }}
+          onLoad={() => {
+            // Image loaded successfully
+            setImageError(false)
+          }}
+        />
+      ) : null}
+      <AvatarFallback className='bg-gray-200 text-gray-600 text-xs font-medium'>
+        {companyName?.[0]?.toUpperCase() || '?'}
+      </AvatarFallback>
     </Avatar>
   )
 }
@@ -262,9 +265,10 @@ export default function VesselRecertifications() {
                                 Clear Filters
                             </Button>
                         </div>
-                        <Table className="border border-gray-200 rounded-sm">
+                        <div className="border border-gray-200 rounded-sm overflow-hidden">
+                        <Table>
                             <TableHeader className="bg-gray-50">
-                                <TableRow className="border-b border-border rounded-sm">
+                                <TableRow className="border-b border-border">
                                     <TableHead>Company</TableHead>
                                     <TableHead>IMO Number</TableHead>
                                     <TableHead>Vessel Name</TableHead>
@@ -317,7 +321,7 @@ export default function VesselRecertifications() {
                                                                 : req.status === 'REJECTED'
                                                                 ? 'bg-red-100 text-red-800 border-red-200'
                                                                 : 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                                                        } rounded-full px-1 py-1 text-sm font-medium`}
+                                                        } rounded-full px-2 py-0 text-sm font-medium`}
                                                     >
                                                         {req.status === 'COMPLETED' ? 'Completed' : 
                                                          req.status === 'REJECTED' ? 'Rejected' : 
@@ -406,9 +410,10 @@ export default function VesselRecertifications() {
                                                             <Button 
                                                                 variant="default" 
                                                                 size="sm" 
-                                                                className="bg-black text-white hover:bg-gray-800"
+                                                                className="bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
                                                                 onClick={() => { setActiveRequest(req); setDialogOpen(true); }}
                                                             >
+                                                                <CheckCircle className="h-4 w-4" />
                                                                 Recertificate
                                                             </Button>
                                                             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -514,8 +519,20 @@ export default function VesselRecertifications() {
                                                                     </div>
                                                                 </div>
                                                                 <DialogFooter>
-                                                                    <Button variant="outline" onClick={() => { setDialogOpen(false); setRejectOpen(true); }}>Reject</Button>
-                                                                    <Button variant="default" onClick={e => { e.preventDefault(); setDialogOpen(false); setConfirmOpen(true); }}>Recertificate</Button>
+                                                                    <Button 
+                                                                        variant="outline" 
+                                                                        className="bg-red-600 text-white hover:bg-red-700 border-red-600"
+                                                                        onClick={() => { setDialogOpen(false); setRejectOpen(true); }}
+                                                                    >
+                                                                        Reject
+                                                                    </Button>
+                                                                    <Button 
+                                                                        variant="default" 
+                                                                        className="bg-green-600 text-white hover:bg-green-700"
+                                                                        onClick={e => { e.preventDefault(); setDialogOpen(false); setConfirmOpen(true); }}
+                                                                    >
+                                                                        Recertificate
+                                                                    </Button>
                                                                 </DialogFooter>
                                                             </DialogContent>
                                                         </Dialog>
@@ -527,6 +544,7 @@ export default function VesselRecertifications() {
                                 )}
                             </TableBody>
                         </Table>
+                        </div>
                         {/* Pagination Controls and row count below table */}
                         <div className="flex flex-wrap items-center justify-between mt-2 text-sm ">
                             <div className='text-sm text-gray-500'>
@@ -570,6 +588,7 @@ export default function VesselRecertifications() {
                                 <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
                                 <Button
                                     variant="destructive"
+                                    className="bg-red-600 text-white hover:bg-red-700"
                                     disabled={loading}
                                     onClick={async () => {
                                         setLoading(true);
@@ -597,16 +616,23 @@ export default function VesselRecertifications() {
                             <div className="py-2 text-sm">Are you sure you want to approve and recertificate this vessel?</div>
                             <DialogFooter>
                                 <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                                <Button variant="default" disabled={loading} onClick={async () => {
-                                    setLoading(true);
-                                    try {
-                                        await handleRecertificate(activeRequest?.id || '', 'recertificate');
-                                        setConfirmOpen(false);
-                                        setDialogOpen(false);
-                                    } catch (e) {
-                                        setLoading(false);
-                                    }
-                                }}>Confirm</Button>
+                                <Button 
+                                    variant="default" 
+                                    className="bg-green-600 text-white hover:bg-green-700"
+                                    disabled={loading} 
+                                    onClick={async () => {
+                                        setLoading(true);
+                                        try {
+                                            await handleRecertificate(activeRequest?.id || '', 'recertificate');
+                                            setConfirmOpen(false);
+                                            setDialogOpen(false);
+                                        } catch (e) {
+                                            setLoading(false);
+                                        }
+                                    }}
+                                >
+                                    Confirm
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
