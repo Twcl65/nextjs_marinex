@@ -149,6 +149,7 @@ export default function DrydockManagementPage() {
   const [loadingShipyards, setLoadingShipyards] = useState(false)
   const [shipyardSearchTerm, setShipyardSearchTerm] = useState('')
   const [openBidDialog, setOpenBidDialog] = useState(false)
+  const [openShipyardsDialog, setOpenShipyardsDialog] = useState(false)
   const [selectedBid, setSelectedBid] = useState<{
     bidId: string;
     drydockRequestId: string;
@@ -746,6 +747,13 @@ export default function DrydockManagementPage() {
     } finally {
       setLoadingShipyards(false)
     }
+  }
+
+  const handleViewBidders = async (request: DrydockRequest) => {
+    setSelectedRequest(request)
+    setShipyardSearchTerm('')
+    await fetchShipyardsWithBids(request.id)
+    setOpenShipyardsDialog(true)
   }
 
   const checkBookedBids = async (drydockRequestId: string, userId: string) => {
@@ -1359,6 +1367,15 @@ export default function DrydockManagementPage() {
                                 )
                               }
                             })()
+                          ) : request.status === 'PENDING' || request.status === 'APPROVED' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-blue-600 cursor-pointer text-white border-blue-600 hover:bg-blue-700 hover:text-white px-3 py-1.5"
+                              onClick={() => handleViewBidders(request)}
+                            >
+                              View Bidders
+                            </Button>
                           ) : (
                             <Button
                               size="sm"
@@ -1426,7 +1443,7 @@ export default function DrydockManagementPage() {
 
         {/* Request Drydock Modal */}
         <Dialog open={showRequestForm} onOpenChange={setShowRequestForm}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
             <DialogHeader className="bg-white">
               <DialogTitle className="bg-white font-bold text-[#134686]">Drydock Request</DialogTitle>
               <DialogDescription className="bg-white">
@@ -1672,7 +1689,7 @@ export default function DrydockManagementPage() {
 
         {/* Service Selection Dialog */}
         <Dialog open={showServiceSelectionDialog} onOpenChange={setShowServiceSelectionDialog}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
             <DialogHeader className="bg-white">
               <DialogTitle className="bg-white font-bold text-[#134686]">Services Needed</DialogTitle>
               <DialogDescription className="bg-white">
@@ -1756,7 +1773,7 @@ export default function DrydockManagementPage() {
 
         {/* Square Meters Dialog */}
         <Dialog open={showSquareMetersDialog} onOpenChange={setShowSquareMetersDialog}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
             <DialogHeader className="bg-white">
               <DialogTitle className="bg-white font-bold text-[#134686]">Specify Square Meters</DialogTitle>
               <DialogDescription className="bg-white">
@@ -1823,6 +1840,86 @@ export default function DrydockManagementPage() {
         </Dialog>
 
 
+
+        {/* Shipyards with Bids Dialog */}
+        <Dialog open={openShipyardsDialog} onOpenChange={setOpenShipyardsDialog}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="bg-white font-bold text-[#134686]">
+                Available Shipyards for {selectedRequest?.vesselName || 'Drydock Request'}
+              </DialogTitle>
+              <DialogDescription className="bg-white">
+                Review shipyard bids and view full bid details before booking.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 bg-white">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-gray-700">Search shipyards:</Label>
+                <Input
+                  value={shipyardSearchTerm}
+                  onChange={(e) => setShipyardSearchTerm(e.target.value)}
+                  placeholder="Search by shipyard name, location, or services..."
+                  className="flex-1 bg-white border-gray-300"
+                />
+              </div>
+
+              {loadingShipyards ? (
+                <div className="text-center py-8 text-gray-500">
+                  Loading shipyard bids...
+                </div>
+              ) : filteredShipyards.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No shipyards have submitted bids for this drydock request yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredShipyards.map((shipyard) => (
+                    <div
+                      key={shipyard.bidId}
+                      className="border border-gray-200 rounded-lg p-4 bg-gray-50 hover:border-gray-300 transition-colors"
+                    >
+                      <div className="flex justify-between items-start gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-900">
+                            {shipyard.shipyardName}
+                          </h3>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {shipyard.shipyardAddress || 'Location not provided'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold text-green-600">
+                            ₱{shipyard.totalBid.toLocaleString('en-PH')}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {shipyard.totalDays} days
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex justify-between items-center">
+                        <Badge className="bg-blue-100 text-blue-800">
+                          {shipyard.bidStatus}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          className="bg-[#134686] hover:bg-[#134686]/90 text-white"
+                          onClick={() => {
+                            handleViewBidInformation(shipyard)
+                            setOpenShipyardsDialog(false)
+                          }}
+                        >
+                          View Bid
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Bid Information Dialog */}
         <Dialog open={openBidDialog} onOpenChange={setOpenBidDialog}>

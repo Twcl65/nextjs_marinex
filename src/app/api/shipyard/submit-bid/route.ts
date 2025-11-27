@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
+import crypto from 'crypto'
 
 export async function POST(req: NextRequest) {
   try {
@@ -80,6 +82,36 @@ export async function POST(req: NextRequest) {
     `
 
     console.log('Bid created successfully:', bidId)
+
+    // Get vessel name for activity log
+    const drydockRequest = await prisma.$queryRaw<Array<{
+      vesselName: string
+      vesselId: string
+    }>>`
+      SELECT vesselName, vesselId 
+      FROM drydock_requests 
+      WHERE id = ${drydockRequestId}
+      LIMIT 1
+    `
+
+    const vesselInfo = drydockRequest && drydockRequest.length > 0 ? drydockRequest[0] : null
+
+    // Log activity
+    await logUserActivity(
+      shipyardUserId,
+      ActivityType.BID_SUBMITTED,
+      `Bid submitted for ${vesselInfo?.vesselName || 'vessel'} (₱${totalBid.toLocaleString()})`,
+      'FileText',
+      {
+        bidId: bidId,
+        drydockRequestId: drydockRequestId,
+        vesselId: vesselInfo?.vesselId || '',
+        vesselName: vesselInfo?.vesselName || '',
+        shipyardName: shipyardUser.shipyardName || '',
+        totalBid: totalBid,
+        totalDays: totalDays
+      }
+    )
 
     return NextResponse.json({ 
       success: true, 

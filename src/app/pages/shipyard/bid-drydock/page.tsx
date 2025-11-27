@@ -1912,7 +1912,7 @@ export default function BidDrydockPage() {
                                     {calculationResults.services.map((service, index) => {
                                         const pricingItem = pricingBreakdown?.perService.find(item => item.name === service.name);
                                         return (
-                                            <div key={index} className="bg-white border border-gray-200 rounded-lg p-4">
+                                            <div key={index} className="bg-white border-t border-gray-300 p-4">
                                                 <div className="flex items-center justify-between mb-3">
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold">

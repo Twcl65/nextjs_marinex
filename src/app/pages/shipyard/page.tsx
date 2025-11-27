@@ -13,7 +13,8 @@ import {
   CheckCircle, 
   FileText, 
   RefreshCw,
-  Clock
+  Clock,
+  TrendingUp
 } from "lucide-react"
 
 export default function ShipyardPage() {
@@ -236,7 +237,17 @@ export default function ShipyardPage() {
                 ) : (
                   <div className="space-y-3">
                     {dashboardData.activities.map((activity, index) => {
-                      const IconComponent = activity.icon === 'Wrench' ? Wrench : CheckCircle
+                      // Map icon strings to actual icon components
+                      const iconMap: { [key: string]: React.ComponentType<{ className?: string }> } = {
+                        'Wrench': Wrench,
+                        'CheckCircle': CheckCircle,
+                        'FileText': FileText,
+                        'TrendingUp': TrendingUp,
+                        'RefreshCw': RefreshCw
+                      }
+                      
+                      const IconComponent = iconMap[activity.icon] || Wrench
+                      
                       return (
                         <div key={index} className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
                           <div className="w-8 h-8 bg-[#134686] rounded-lg flex items-center justify-center flex-shrink-0">

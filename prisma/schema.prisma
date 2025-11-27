@@ -41,6 +41,7 @@ model User {
   mcNotifications     DrydockMcNotification[]
   sentDocuments       UserDocument[]              @relation("SentDocuments")
   issuedCertificates  DrydockIssuedCertificate[] @relation("IssuedCertificates")
+  activities          UserActivity[]
 
   @@map("users")
 }
@@ -323,6 +324,21 @@ model DrydockIssuedCertificate {
   @@map("drydock_issued_certificates")
 }
 
+model UserActivity {
+  id          String      @id @default(cuid())
+  userId      String
+  activityType ActivityType
+  message     String
+  icon        String      @default("Wrench")
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "users_activity_userId_fkey")
+  @@index([createdAt], map: "users_activity_createdAt_idx")
+  @@map("users_activity")
+}
+
 enum Role {
   SHIPOWNER
   SHIPYARD
@@ -388,4 +404,13 @@ enum RecertificateStatus {
   APPROVED
   REJECTED
   COMPLETED
+}
+
+enum ActivityType {
+  VESSEL_ADDED
+  DRYDOCK_REQUESTED
+  SHIPYARD_BOOKED
+  AUTHORITY_REQUESTED
+  RECERTIFICATION_REQUESTED
+  DOCUMENT_ADDED
 }

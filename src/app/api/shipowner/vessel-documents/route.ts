@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { jwtVerify } from 'jose'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import crypto from 'crypto'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'ap-southeast-2',
@@ -394,6 +395,26 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    // Get vessel name for activity log
+    const vesselInfo = await prisma.shipVessel.findUnique({
+      where: { id: vesselId },
+      select: { vesselName: true }
+    })
+
+    // Log activity
+    await logUserActivity(
+      user.userId,
+      ActivityType.DOCUMENT_ADDED,
+      `Document ${documentName} added for ${vesselInfo?.vesselName || 'vessel'}`,
+      'FileText',
+      {
+        vesselId: vesselId,
+        vesselName: vesselInfo?.vesselName || '',
+        documentType: documentType,
+        documentName: documentName
+      }
+    )
 
     return NextResponse.json({
       success: true,

@@ -4,8 +4,41 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import crypto from 'crypto'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
+import { jwtVerify } from 'jose'
 
 const prisma = new PrismaClient()
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
+
+async function getAuthenticatedUser(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null
+    }
+
+    const token = authHeader.substring(7)
+    const { payload } = await jwtVerify(token, JWT_SECRET)
+    return payload as { userId: string; email: string; role: string }
+  } catch (error) {
+    return null
+  }
+}
+
+async function getMarinaUserId(request: NextRequest): Promise<string | null> {
+  const authUser = await getAuthenticatedUser(request)
+  if (authUser && authUser.role === 'MARINA') {
+    return authUser.userId
+  }
+  
+  // Fallback: get first marina user
+  const marinaUser = await prisma.user.findFirst({
+    where: { role: 'MARINA' },
+    select: { id: true }
+  })
+  return marinaUser?.id || null
+}
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'ap-southeast-2',
@@ -371,6 +404,22 @@ Maritime Industry Authority`
         } catch (notificationError) {
           // Log error but don't fail the request
           console.error('Error creating notification or sending SMS:', notificationError)
+        }
+
+        // Log activity for marina user
+        const marinaUserId = await getMarinaUserId(request)
+        if (marinaUserId) {
+          await logUserActivity(
+            marinaUserId,
+            ActivityType.RECERTIFICATION_APPROVED,
+            `Vessel recertification approved for ${recertification.vesselName}`,
+            'CheckCircle',
+            {
+              vesselId: recertification.vesselId,
+              vesselName: recertification.vesselName,
+              recertificateId: recertificateId
+            }
+          )
         }
 
         return NextResponse.json({

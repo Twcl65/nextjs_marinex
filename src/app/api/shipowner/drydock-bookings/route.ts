@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
 export async function POST(req: NextRequest) {
   try {
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
         db.id,
         db.status,
         db.bookingDate,
+        dr.vesselId,
         dr.vesselName,
         dr.imoNumber,
         db_bid.shipyardName,
@@ -91,6 +93,21 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       )
     }
+
+    // Log activity
+    await logUserActivity(
+      userId,
+      ActivityType.SHIPYARD_BOOKED,
+      `Shipyard booked for ${bookingData.vesselName}`,
+      'Wrench',
+      {
+        vesselId: bookingData.vesselId,
+        vesselName: bookingData.vesselName,
+        drydockRequestId: drydockRequestId,
+        bookingId: bookingId,
+        shipyardName: bookingData.shipyardName
+      }
+    )
 
     return NextResponse.json({
       success: true,

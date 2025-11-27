@@ -97,49 +97,20 @@ export async function GET(request: NextRequest) {
         })
       })(),
 
-      // Recent Activities - get recent bookings, recertifications, and requests
-      Promise.all([
-        prisma.drydockBooking.findMany({
-          where: {
-            userId: userId
-          },
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            createdAt: true,
-            status: true,
-            drydockRequest: {
-              select: {
-                vesselName: true
-              }
-            }
-          }
-        }),
-        prisma.drydockVesselRecertificate.findMany({
-          where: {
-            userId: userId
-          },
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            createdAt: true,
-            status: true,
-            vesselName: true
-          }
-        }),
-        prisma.drydockRequest.findMany({
-          where: {
-            userId: userId
-          },
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            createdAt: true,
-            status: true,
-            vesselName: true
-          }
-        })
-      ])
+      // Recent Activities - get recent activities from users_activity table
+      prisma.$queryRaw`
+        SELECT 
+          id,
+          userId,
+          activityType,
+          message,
+          icon,
+          createdAt
+        FROM users_activity
+        WHERE userId = ${userId}
+        ORDER BY createdAt DESC
+        LIMIT 10
+      `
     ])
 
     // Transform vessel expirations
@@ -160,55 +131,28 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Transform recent activities
-    const activities: Array<{
-      type: string
-      message: string
-      time: string
-      icon: string
-      date: Date
-    }> = []
-
-    const [bookingActivities, recertActivities, requestActivities] = recentActivities
-
-    // Add booking activities
-    bookingActivities.forEach((activity) => {
-      activities.push({
-        type: 'booking',
-        message: `Booking ${activity.status.toLowerCase()} for ${activity.drydockRequest.vesselName}`,
-        time: getTimeAgo(activity.createdAt),
-        icon: 'Wrench',
-        date: activity.createdAt
-      })
-    })
-
-    // Add recertification activities
-    recertActivities.forEach((activity) => {
-      activities.push({
-        type: 'recertification',
-        message: `Recertification ${activity.status.toLowerCase()} for ${activity.vesselName}`,
-        time: getTimeAgo(activity.createdAt),
-        icon: 'RefreshCw',
-        date: activity.createdAt
-      })
-    })
-
-    // Add request activities
-    requestActivities.forEach((activity) => {
-      activities.push({
-        type: 'request',
-        message: `Drydock request ${activity.status.toLowerCase()} for ${activity.vesselName}`,
-        time: getTimeAgo(activity.createdAt),
-        icon: 'FileText',
-        date: activity.createdAt
-      })
-    })
-
-    // Sort activities by date (most recent first) and take the most recent 5
-    activities.sort((a, b) => b.date.getTime() - a.date.getTime())
+    // Transform recent activities from users_activity table
+    const activitiesRaw = Array.isArray(recentActivities) ? recentActivities : []
     
-    // Remove date before returning
-    const finalActivities = activities.slice(0, 5).map(({ date, ...rest }) => rest)
+    const finalActivities = activitiesRaw.slice(0, 5).map((activity: {
+      id: string
+      userId: string
+      activityType: string
+      message: string
+      icon: string
+      createdAt: Date | string
+    }) => {
+      const createdAt = typeof activity.createdAt === 'string' 
+        ? new Date(activity.createdAt) 
+        : activity.createdAt
+      
+      return {
+        type: activity.activityType,
+        message: activity.message,
+        time: getTimeAgo(createdAt),
+        icon: activity.icon
+      }
+    })
 
     return NextResponse.json({
       totalVessels,

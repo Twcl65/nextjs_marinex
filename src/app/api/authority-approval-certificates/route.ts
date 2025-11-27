@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'ap-southeast-2',
@@ -115,8 +116,29 @@ export async function POST(request: NextRequest) {
         finalScopeOfWorkUrl,
         createdAt: new Date(),
         updatedAt: new Date()
+      },
+      include: {
+        drydockRequest: {
+          select: {
+            vesselName: true
+          }
+        }
       }
     })
+
+    // Log activity
+    await logUserActivity(
+      userId,
+      ActivityType.AUTHORITY_REQUESTED,
+      `Authority to proceed requested for ${newAuthorityRequest.drydockRequest.vesselName}`,
+      'FileText',
+      {
+        vesselId: vesselId,
+        vesselName: newAuthorityRequest.drydockRequest.vesselName,
+        drydockRequestId: drydockRequestId,
+        bookingId: drydockBookingId
+      }
+    )
 
     return NextResponse.json({
       message: 'Drydock authority request submitted successfully',

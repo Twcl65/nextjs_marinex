@@ -17,8 +17,7 @@ export async function GET(req: NextRequest) {
       drydockOperationCount,
       totalDocumentsCount,
       bookedVessels,
-      recentBids,
-      recentBookings
+      recentActivities
     ] = await Promise.all([
       // Drydock Bid - count of active bids submitted by this shipyard
       prisma.drydockBid.count({
@@ -84,50 +83,27 @@ export async function GET(req: NextRequest) {
         take: 10
       }),
 
-      // Recent Bids
-      prisma.drydockBid.findMany({
-        where: {
-          shipyardUserId: shipyardUserId,
-          status: {
-            in: ['SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED', 'WITHDRAWN', 'RECOMMENDED']
-          }
-        },
-        select: {
-          id: true,
-          submittedAt: true,
-          status: true,
-          drydockRequest: {
-            select: {
-              id: true,
-              vesselName: true
-            }
-          }
-        },
-        orderBy: {
-          submittedAt: 'desc'
-        },
-        take: 5
-      }),
-
-      // Recent Bookings
-      prisma.drydockBooking.findMany({
-        where: {
-          shipyardUserId: shipyardUserId
-        },
-        select: {
-          createdAt: true,
-          status: true,
-          drydockRequest: {
-            select: {
-              vesselName: true
-            }
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        },
-        take: 5
-      })
+      // Recent Activities - get recent activities from users_activity table
+      prisma.$queryRaw<Array<{
+        id: string
+        userId: string
+        activityType: string
+        message: string
+        icon: string
+        createdAt: Date
+      }>>`
+        SELECT 
+          id,
+          userId,
+          activityType,
+          message,
+          icon,
+          createdAt
+        FROM users_activity
+        WHERE userId = ${shipyardUserId}
+        ORDER BY createdAt DESC
+        LIMIT 10
+      `
     ])
 
     // Calculate progress for booked vessels
@@ -145,45 +121,28 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    // Combine and format recent activities
-    const activities: Array<{ type: string; message: string; time: string; icon: string; date?: Date }> = []
-
-    // Add bid activities
-    recentBids.forEach((bid, index) => {
-      const requestId = bid.drydockRequest?.id ? `request #${bid.drydockRequest.id.slice(-1)}` : `request #${index + 2}`
-      activities.push({
-        type: 'bid',
-        message: `New drydock bid submitted for ${requestId}`,
-        time: getTimeAgo(bid.submittedAt),
-        icon: 'Wrench',
-        date: bid.submittedAt
-      })
-    })
-
-    // Add booking activities
-    recentBookings.forEach((booking) => {
-      const vesselName = booking.drydockRequest?.vesselName || 'Unknown'
-      if (booking.status === 'CONFIRMED') {
-        activities.push({
-          type: 'booking',
-          message: `Booking confirmed for ${vesselName} drydock operation`,
-          time: getTimeAgo(booking.createdAt),
-          icon: 'CheckCircle',
-          date: booking.createdAt
-        })
-      }
-    })
-
-    // Sort activities by date (most recent first) and take the most recent 4
-    activities.sort((a, b) => {
-      if (a.date && b.date) {
-        return new Date(b.date).getTime() - new Date(a.date).getTime()
-      }
-      return 0
-    })
+    // Transform recent activities from users_activity table
+    const activitiesRaw = Array.isArray(recentActivities) ? recentActivities : []
     
-    // Remove date before returning
-    const finalActivities = activities.slice(0, 4).map(({ date, ...rest }) => rest)
+    const finalActivities = activitiesRaw.slice(0, 5).map((activity: {
+      id: string
+      userId: string
+      activityType: string
+      message: string
+      icon: string
+      createdAt: Date
+    }) => {
+      const createdAt = activity.createdAt instanceof Date 
+        ? activity.createdAt 
+        : new Date(activity.createdAt)
+      
+      return {
+        type: activity.activityType,
+        message: activity.message,
+        time: getTimeAgo(createdAt),
+        icon: activity.icon || 'Wrench'
+      }
+    })
 
     return NextResponse.json({
       drydockBid: drydockBidCount,
@@ -205,19 +164,29 @@ export async function GET(req: NextRequest) {
 // Helper function to calculate time ago
 function getTimeAgo(date: Date): string {
   const now = new Date()
-  const diffInMs = now.getTime() - new Date(date).getTime()
-  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60))
-  const diffInDays = Math.floor(diffInHours / 24)
-
-  if (diffInHours < 1) {
-    return 'Less than 1 hour ago'
-  } else if (diffInHours < 24) {
-    return `${diffInHours} ${diffInHours === 1 ? 'hour' : 'hours'} ago`
-  } else if (diffInDays < 7) {
-    return `${diffInDays} ${diffInDays === 1 ? 'day' : 'days'} ago`
-  } else {
-    return `${Math.floor(diffInDays / 7)} ${Math.floor(diffInDays / 7) === 1 ? 'week' : 'weeks'} ago`
+  const diffInSeconds = Math.floor((now.getTime() - new Date(date).getTime()) / 1000)
+  
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds} seconds ago`
   }
+  
+  const diffInMinutes = Math.floor(diffInSeconds / 60)
+  if (diffInMinutes < 60) {
+    return `${diffInMinutes} ${diffInMinutes === 1 ? 'minute' : 'minutes'} ago`
+  }
+  
+  const diffInHours = Math.floor(diffInMinutes / 60)
+  if (diffInHours < 24) {
+    return `${diffInHours} ${diffInHours === 1 ? 'hour' : 'hours'} ago`
+  }
+  
+  const diffInDays = Math.floor(diffInHours / 24)
+  if (diffInDays < 7) {
+    return `${diffInDays} ${diffInDays === 1 ? 'day' : 'days'} ago`
+  }
+  
+  const diffInWeeks = Math.floor(diffInDays / 7)
+  return `${diffInWeeks} ${diffInWeeks === 1 ? 'week' : 'weeks'} ago`
 }
 
 // Helper function to extract hours from time string for sorting

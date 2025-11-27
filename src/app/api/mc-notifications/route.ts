@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import crypto from "crypto"
 import { jwtVerify } from "jose"
+import { logUserActivity, ActivityType } from "@/lib/activity-logger"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
 
@@ -318,6 +319,28 @@ Maritime Industry Authority`
         fullName: vessel.user.fullName,
         contactNumber: vessel.user.contactNumber 
       })
+    }
+
+    // Log activity for marina user
+    const marinaUser = await prisma.user.findFirst({
+      where: { role: 'MARINA' },
+      select: { id: true }
+    })
+    
+    if (marinaUser) {
+      const requirementsList = requirements.join(', ')
+      await logUserActivity(
+        marinaUser.id,
+        ActivityType.SHIPOWNER_NOTIFIED,
+        `Shipowner notified for ${vesselName} (${requirementsList})`,
+        'Bell',
+        {
+          vesselId: vesselId,
+          vesselName: vesselName,
+          userId: userId,
+          requirements: requirements
+        }
+      )
     }
 
     return NextResponse.json({

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ArrowRight, UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -47,6 +48,7 @@ export default function RegisterPage() {
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [apiError, setApiError] = useState<string>('');
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
   const router = useRouter();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,62 +65,95 @@ export default function RegisterPage() {
     }
   };
 
-  const validateForm = () => {
+  const validateStep = (step: number): boolean => {
     const newErrors: {[key: string]: string} = {};
 
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
-    }
-
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    // Role-specific validation
     if (formData.role === 'shipowner') {
-      if (!formData.fullName.trim()) newErrors.fullName = 'Full/Company name is required';
-      if (!formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
-      if (!formData.officeAddress.trim()) newErrors.officeAddress = 'Office address is required';
-      const anyVesselProvided = [formData.vesselName, formData.imoNumber, formData.vesselType, formData.vesselCapacity].some(v => v && v.trim().length > 0);
-      if (anyVesselProvided) {
-        if (!formData.vesselName.trim()) newErrors.vesselName = 'Vessel name is required';
-        if (!formData.imoNumber.trim()) newErrors.imoNumber = 'IMO/Vessel ID is required';
-        if (!formData.vesselType.trim()) newErrors.vesselType = 'Vessel type is required';
-        if (!formData.vesselCapacity.trim()) newErrors.vesselCapacity = 'Vessel capacity is required';
+      if (step === 1) {
+        // Step 1: logo, company name, company number, company address, business registration num
+        if (!formData.fullName.trim()) newErrors.fullName = 'Full/Company name is required';
+        if (!formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
+        if (!formData.officeAddress.trim()) newErrors.officeAddress = 'Office address is required';
+      } else if (step === 2) {
+        // Step 2: vessel infos
+        const anyVesselProvided = [formData.vesselName, formData.imoNumber, formData.vesselType, formData.vesselCapacity].some(v => v && v.trim().length > 0);
+        if (anyVesselProvided) {
+          if (!formData.vesselName.trim()) newErrors.vesselName = 'Vessel name is required';
+          if (!formData.imoNumber.trim()) newErrors.imoNumber = 'IMO/Vessel ID is required';
+          if (!formData.vesselType.trim()) newErrors.vesselType = 'Vessel type is required';
+          if (!formData.vesselCapacity.trim()) newErrors.vesselCapacity = 'Vessel capacity is required';
+        }
+      } else if (step === 3) {
+        // Step 3: email, password, confirm password
+        if (!formData.email.trim()) {
+          newErrors.email = 'Email is required';
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+          newErrors.email = 'Email is invalid';
+        }
+        if (!formData.password) {
+          newErrors.password = 'Password is required';
+        } else if (formData.password.length < 6) {
+          newErrors.password = 'Password must be at least 6 characters';
+        }
+        if (formData.password !== formData.confirmPassword) {
+          newErrors.confirmPassword = 'Passwords do not match';
+        }
       }
     } else if (formData.role === 'shipyard') {
-      if (!formData.shipyardName.trim()) newErrors.shipyardName = 'Shipyard name is required';
-      if (!formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
-      if (!formData.dockyardLocation.trim()) newErrors.dockyardLocation = 'Dockyard location is required';
-      if (!formData.shipyardBusinessRegNumber.trim()) newErrors.shipyardBusinessRegNumber = 'Business registration number is required';
-      // Optional: yearsOfOperation, maxVesselCapacity
-      // Validate at least one service with a name
-      const hasAnyServiceName = formData.dockingServices.some(s => s.name && s.name.trim().length > 0);
-      if (!hasAnyServiceName) newErrors.dockingServices = 'Add at least one docking service';
-      formData.dockingServices.forEach((s, idx) => {
-        const prefix = `dockingServices[${idx}]`;
-        if (s.name && s.name.trim().length > 0) {
-          if (!s.squareMeters.trim()) newErrors[`${prefix}.squareMeters`] = 'Square meters required';
-          if (!s.hours.trim()) newErrors[`${prefix}.hours`] = 'Hours required';
-          if (!s.workers.trim()) newErrors[`${prefix}.workers`] = 'Workers required';
-          if (!s.days.trim()) newErrors[`${prefix}.days`] = 'Days required';
-          if (!s.price.trim()) newErrors[`${prefix}.price`] = 'Price required';
+      if (step === 1) {
+        // Step 1: logo, company name, company number, company address, business registration num
+        if (!formData.shipyardName.trim()) newErrors.shipyardName = 'Shipyard name is required';
+        if (!formData.contactNumber.trim()) newErrors.contactNumber = 'Contact number is required';
+        if (!formData.dockyardLocation.trim()) newErrors.dockyardLocation = 'Dockyard location is required';
+        if (!formData.shipyardBusinessRegNumber.trim()) newErrors.shipyardBusinessRegNumber = 'Business registration number is required';
+      } else if (step === 2) {
+        // Step 2: vessel infos (docking services, etc.)
+        const hasAnyServiceName = formData.dockingServices.some(s => s.name && s.name.trim().length > 0);
+        if (!hasAnyServiceName) newErrors.dockingServices = 'Add at least one docking service';
+        formData.dockingServices.forEach((s, idx) => {
+          const prefix = `dockingServices[${idx}]`;
+          if (s.name && s.name.trim().length > 0) {
+            if (!s.squareMeters.trim()) newErrors[`${prefix}.squareMeters`] = 'Square meters required';
+            if (!s.hours.trim()) newErrors[`${prefix}.hours`] = 'Hours required';
+            if (!s.workers.trim()) newErrors[`${prefix}.workers`] = 'Workers required';
+            if (!s.days.trim()) newErrors[`${prefix}.days`] = 'Days required';
+            if (!s.price.trim()) newErrors[`${prefix}.price`] = 'Price required';
+          }
+        });
+      } else if (step === 3) {
+        // Step 3: email, password, confirm password
+        if (!formData.email.trim()) {
+          newErrors.email = 'Email is required';
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+          newErrors.email = 'Email is invalid';
         }
-      });
-      // Optional: dryDockAvailability, contactPerson
-      // Certificates optional in this iteration; backend upload not wired yet
+        if (!formData.password) {
+          newErrors.password = 'Password is required';
+        } else if (formData.password.length < 6) {
+          newErrors.password = 'Password must be at least 6 characters';
+        }
+        if (formData.password !== formData.confirmPassword) {
+          newErrors.confirmPassword = 'Passwords do not match';
+        }
+      }
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const validateForm = () => {
+    return validateStep(3); // Final step validation
+  };
+
+  const handleContinue = () => {
+    if (validateStep(currentStep)) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const handleBack = () => {
+    setCurrentStep(currentStep - 1);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -379,7 +414,7 @@ export default function RegisterPage() {
       </Dialog>
 
       <div className="min-h-screen flex items-center justify-center bg-cover bg-center bg-no-repeat py-10 px-4 sm:px-6 lg:px-8" style={{ backgroundImage: "url('/assets/background.jpg')" }}>
-        <Card className="w-full max-w-5xl shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+        <Card className="w-full max-w-3xl shadow-xl border-0 bg-white">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-xl sm:text-2xl font-bold text-[#134686]">
             Create your account
@@ -404,7 +439,10 @@ export default function RegisterPage() {
                   type="button"
                   variant={formData.role === 'shipowner' ? 'default' : 'secondary'}
                   className={`${formData.role === 'shipowner' ? 'bg-[#134686] hover:bg-[#0f3a6e] text-white' : ''}`}
-                  onClick={() => setFormData({ ...formData, role: 'shipowner' })}
+                  onClick={() => {
+                    setFormData({ ...formData, role: 'shipowner' });
+                    setCurrentStep(1);
+                  }}
                 >
                   Shipowner
                 </Button>
@@ -412,118 +450,156 @@ export default function RegisterPage() {
                   type="button"
                   variant={formData.role === 'shipyard' ? 'default' : 'secondary'}
                   className={`${formData.role === 'shipyard' ? 'bg-[#134686] hover:bg-[#0f3a6e] text-white' : ''}`}
-                  onClick={() => setFormData({ ...formData, role: 'shipyard' })}
+                  onClick={() => {
+                    setFormData({ ...formData, role: 'shipyard' });
+                    setCurrentStep(1);
+                  }}
                 >
                   Shipyard
                 </Button>
               </div>
             </div>
 
-            {/* Logo Upload */}
-            <div className="space-y-2">
-              <Label htmlFor="logoFile" className="text-[#134686] font-medium">Upload Logo</Label>
-              <Input id="logoFile" name="logoFile" type="file" accept="image/*" onChange={(e) => {
-                const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
-                setFormData({ ...formData, logoFile: file });
-              }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
+            {/* Step Indicator */}
+            <div className="flex items-center justify-center space-x-2 py-4">
+              {[1, 2, 3].map((step) => (
+                <div key={step} className="flex items-center">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                      currentStep >= step
+                        ? 'bg-[#134686] text-white'
+                        : 'bg-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {step}
+                  </div>
+                  {step < 3 && (
+                    <div
+                      className={`w-12 h-1 mx-1 ${
+                        currentStep > step ? 'bg-[#134686]' : 'bg-gray-200'
+                      }`}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
 
-            {formData.role === 'shipowner' ? (
+            {/* Step 1: Company Information */}
+            {currentStep === 1 && (
               <div className="space-y-4">
-              <div className="space-y-2">
-                  <Label htmlFor="fullName" className="text-[#134686] font-medium">Full Name / Company Name</Label>
-                <Input
-                    id="fullName"
-                    name="fullName"
-                  type="text"
-                    placeholder="e.g., John Doe Shipping Co."
-                    value={formData.fullName}
-                  onChange={handleChange}
-                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.fullName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
-                  />
-                  {errors.fullName && (<p className="text-sm text-red-600">{errors.fullName}</p>)}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="contactNumber" className="text-[#134686] font-medium">Contact Number</Label>
-                    <Input id="contactNumber" name="contactNumber" type="tel" autoComplete="tel" placeholder="+63 900 000 0000" value={formData.contactNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                    {errors.contactNumber && (<p className="text-sm text-red-600">{errors.contactNumber}</p>)}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="officeAddress" className="text-[#134686] font-medium">Office Address (City/Province/Country)</Label>
-                    <Input id="officeAddress" name="officeAddress" type="text" autoComplete="street-address" placeholder="City, Province, Country" value={formData.officeAddress} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.officeAddress ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                    {errors.officeAddress && (<p className="text-sm text-red-600">{errors.officeAddress}</p>)}
-                  </div>
-                </div>
                 <div className="space-y-2">
-                  <Label htmlFor="businessRegistrationNumber" className="text-[#134686] font-medium">Business Registration Number (optional)</Label>
-                  <Input id="businessRegistrationNumber" name="businessRegistrationNumber" type="text" placeholder="BRN-XXXXX" value={formData.businessRegistrationNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
+                  <Label htmlFor="logoFile" className="text-[#134686] font-medium">Upload Logo</Label>
+                  <Input id="logoFile" name="logoFile" type="file" accept="image/*" onChange={(e) => {
+                    const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                    setFormData({ ...formData, logoFile: file });
+                  }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
                 </div>
-                <div className="space-y-2">
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {formData.role === 'shipowner' ? (
+                  <>
                     <div className="space-y-2">
-                      <Label htmlFor="vesselName" className="text-[#134686]">Vessel Name</Label>
-                      <Input id="vesselName" name="vesselName" type="text" placeholder="e.g., MV Marinex" value={formData.vesselName} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                      {errors.vesselName && (<p className="text-sm text-red-600">{errors.vesselName}</p>)}
+                      <Label htmlFor="fullName" className="text-[#134686] font-medium">Company Name</Label>
+                      <Input
+                        id="fullName"
+                        name="fullName"
+                        type="text"
+                        placeholder="e.g., John Doe Shipping Co."
+                        value={formData.fullName}
+                        onChange={handleChange}
+                        className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.fullName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
+                      />
+                      {errors.fullName && (<p className="text-sm text-red-600">{errors.fullName}</p>)}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="imoNumber" className="text-[#134686]">IMO Number / Vessel ID</Label>
-                      <Input id="imoNumber" name="imoNumber" type="text" placeholder="e.g., IMO 1234567" value={formData.imoNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.imoNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                      {errors.imoNumber && (<p className="text-sm text-red-600">{errors.imoNumber}</p>)}
+                      <Label htmlFor="contactNumber" className="text-[#134686] font-medium">Company Number</Label>
+                      <Input id="contactNumber" name="contactNumber" type="tel" autoComplete="tel" placeholder="+63 900 000 0000" value={formData.contactNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.contactNumber && (<p className="text-sm text-red-600">{errors.contactNumber}</p>)}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="vesselType" className="text-[#134686]">Vessel Type</Label>
-                      <Input id="vesselType" name="vesselType" type="text" placeholder="Tanker, Cargo, Passenger, etc." value={formData.vesselType} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselType ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                      {errors.vesselType && (<p className="text-sm text-red-600">{errors.vesselType}</p>)}
+                      <Label htmlFor="officeAddress" className="text-[#134686] font-medium">Company Address</Label>
+                      <Input id="officeAddress" name="officeAddress" type="text" autoComplete="street-address" placeholder="City, Province, Country" value={formData.officeAddress} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.officeAddress ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.officeAddress && (<p className="text-sm text-red-600">{errors.officeAddress}</p>)}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="vesselCapacity" className="text-[#134686]">Vessel Capacity (GT/DWT/passenger)</Label>
-                      <Input id="vesselCapacity" name="vesselCapacity" type="text" placeholder="e.g., 50,000 DWT" value={formData.vesselCapacity} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselCapacity ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                      {errors.vesselCapacity && (<p className="text-sm text-red-600">{errors.vesselCapacity}</p>)}
+                      <Label htmlFor="businessRegistrationNumber" className="text-[#134686] font-medium">Business Registration Number</Label>
+                      <Input id="businessRegistrationNumber" name="businessRegistrationNumber" type="text" placeholder="BRN-XXXXX" value={formData.businessRegistrationNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
                     </div>
-                  </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipyardName" className="text-[#134686] font-medium">Company Name</Label>
+                      <Input id="shipyardName" name="shipyardName" type="text" placeholder="e.g., Marinex Shipyards" value={formData.shipyardName} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.shipyardName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.shipyardName && (<p className="text-sm text-red-600">{errors.shipyardName}</p>)}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contactNumber" className="text-[#134686] font-medium">Company Number</Label>
+                      <Input id="contactNumber" name="contactNumber" type="tel" placeholder="+63 900 000 0000" value={formData.contactNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.contactNumber && (<p className="text-sm text-red-600">{errors.contactNumber}</p>)}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="dockyardLocation" className="text-[#134686] font-medium">Company Address</Label>
+                      <Input id="dockyardLocation" name="dockyardLocation" type="text" autoComplete="street-address" placeholder="City, Province, Country" value={formData.dockyardLocation} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.dockyardLocation ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.dockyardLocation && (<p className="text-sm text-red-600">{errors.dockyardLocation}</p>)}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipyardBusinessRegNumber" className="text-[#134686] font-medium">Business Registration Number</Label>
+                      <Input id="shipyardBusinessRegNumber" name="shipyardBusinessRegNumber" type="text" placeholder="BRN-XXXXX" value={formData.shipyardBusinessRegNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.shipyardBusinessRegNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                      {errors.shipyardBusinessRegNumber && (<p className="text-sm text-red-600">{errors.shipyardBusinessRegNumber}</p>)}
+                    </div>
+                  </>
+                )}
+
+                <div className="flex justify-end pt-4">
+                  <Button
+                    type="button"
+                    onClick={handleContinue}
+                    className="bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium"
+                  >
+                    <ArrowRight className="mr-2 h-4 w-4" />
+                    Continue
+                  </Button>
                 </div>
               </div>
-            ) : (
+            )}
+
+            {/* Step 2: Vessel Information */}
+            {currentStep === 2 && (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="shipyardName" className="text-[#134686] font-medium">Shipyard Name</Label>
-                  <Input id="shipyardName" name="shipyardName" type="text" placeholder="e.g., Marinex Shipyards" value={formData.shipyardName} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.shipyardName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                  {errors.shipyardName && (<p className="text-sm text-red-600">{errors.shipyardName}</p>)}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="contactNumber" className="text-[#134686] font-medium">Contact Number</Label>
-                    <Input id="contactNumber" name="contactNumber" type="tel" placeholder="+63 900 000 0000" value={formData.contactNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                    {errors.contactNumber && (<p className="text-sm text-red-600">{errors.contactNumber}</p>)}
+                {formData.role === 'shipowner' ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="vesselName" className="text-[#134686]">Vessel Name</Label>
+                        <Input id="vesselName" name="vesselName" type="text" placeholder="e.g., MV Marinex" value={formData.vesselName} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselName ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                        {errors.vesselName && (<p className="text-sm text-red-600">{errors.vesselName}</p>)}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="imoNumber" className="text-[#134686]">IMO Number / Vessel ID</Label>
+                        <Input id="imoNumber" name="imoNumber" type="text" placeholder="e.g., IMO 1234567" value={formData.imoNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.imoNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                        {errors.imoNumber && (<p className="text-sm text-red-600">{errors.imoNumber}</p>)}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="vesselType" className="text-[#134686]">Vessel Type</Label>
+                        <Input id="vesselType" name="vesselType" type="text" placeholder="Tanker, Cargo, Passenger, etc." value={formData.vesselType} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselType ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                        {errors.vesselType && (<p className="text-sm text-red-600">{errors.vesselType}</p>)}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="vesselCapacity" className="text-[#134686]">Vessel Capacity (GT/DWT/passenger)</Label>
+                        <Input id="vesselCapacity" name="vesselCapacity" type="text" placeholder="e.g., 50,000 DWT" value={formData.vesselCapacity} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.vesselCapacity ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                        {errors.vesselCapacity && (<p className="text-sm text-red-600">{errors.vesselCapacity}</p>)}
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="dockyardLocation" className="text-[#134686] font-medium">Office Address (Dockyard Location)</Label>
-                    <Input id="dockyardLocation" name="dockyardLocation" type="text" autoComplete="street-address" placeholder="City, Province, Country" value={formData.dockyardLocation} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.dockyardLocation ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                    {errors.dockyardLocation && (<p className="text-sm text-red-600">{errors.dockyardLocation}</p>)}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="shipyardBusinessRegNumber" className="text-[#134686] font-medium">Business Registration Number</Label>
-                    <Input id="shipyardBusinessRegNumber" name="shipyardBusinessRegNumber" type="text" placeholder="BRN-XXXXX" value={formData.shipyardBusinessRegNumber} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.shipyardBusinessRegNumber ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                    {errors.shipyardBusinessRegNumber && (<p className="text-sm text-red-600">{errors.shipyardBusinessRegNumber}</p>)}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="yearsOfOperation" className="text-[#134686] font-medium">Years of Operation</Label>
-                    <Input id="yearsOfOperation" name="yearsOfOperation" type="number" min="0" placeholder="e.g., 10" value={formData.yearsOfOperation} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.yearsOfOperation ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                    {errors.yearsOfOperation && (<p className="text-sm text-red-600">{errors.yearsOfOperation}</p>)}
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-[#134686] font-medium">Docking Services</Label>
-                    {errors.dockingServices && (<p className="text-sm text-red-600">{errors.dockingServices}</p>)}
-                  </div>
-                  {formData.dockingServices.map((svc, idx) => (
-                    <div key={idx} className="rounded-md border border-[#13468633] p-3 space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-[#134686] font-medium">Docking Services</Label>
+                      {errors.dockingServices && (<p className="text-sm text-red-600">{errors.dockingServices}</p>)}
+                    </div>
+                    {formData.dockingServices.map((svc, idx) => (
+                      <div key={idx} className="rounded-md border border-[#13468633] p-3 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor={`service-name-${idx}`} className="text-[#134686]">Service Name</Label>
                           <Input id={`service-name-${idx}`} type="text" placeholder="e.g., Floating Dock" value={svc.name} onChange={(e) => {
@@ -574,8 +650,8 @@ export default function RegisterPage() {
                             if (errors[`dockingServices[${idx}].days`]) setErrors({ ...errors, [`dockingServices[${idx}].days`]: '' });
                           }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors[`dockingServices[${idx}].days`] ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
                           {errors[`dockingServices[${idx}].days`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].days`]}</p>)}
-              </div>
-              <div className="space-y-2">
+                        </div>
+                        <div className="space-y-2">
                           <Label htmlFor={`service-price-${idx}`} className="text-[#134686]">Service Price</Label>
                           <Input id={`service-price-${idx}`} type="text" placeholder="e.g., ₱100,000" value={svc.price} onChange={(e) => {
                             const ns = [...formData.dockingServices];
@@ -586,142 +662,183 @@ export default function RegisterPage() {
                           {errors[`dockingServices[${idx}].price`] && (<p className="text-sm text-red-600">{errors[`dockingServices[${idx}].price`]}</p>)}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 justify-end">
-                        {formData.dockingServices.length > 1 && (
-                          <Button type="button" variant="secondary" onClick={() => {
-                            const ns = formData.dockingServices.filter((_, i) => i !== idx);
-                            setFormData({ ...formData, dockingServices: ns });
-                          }}>Remove</Button>
-                        )}
-                        {idx === formData.dockingServices.length - 1 && (
-                          <Button type="button" onClick={() => {
-                            setFormData({
-                              ...formData,
-                              dockingServices: [...formData.dockingServices, { name: '', squareMeters: '', hours: '', workers: '', days: '', price: '' }]
-                            })
-                          }} className="bg-[#134686] hover:bg-[#0f3a6e] text-white">Add another service</Button>
-                        )}
+                        <div className="flex items-center gap-2 justify-end">
+                          {formData.dockingServices.length > 1 && (
+                            <Button type="button" variant="secondary" onClick={() => {
+                              const ns = formData.dockingServices.filter((_, i) => i !== idx);
+                              setFormData({ ...formData, dockingServices: ns });
+                            }}>Remove</Button>
+                          )}
+                          {idx === formData.dockingServices.length - 1 && (
+                            <Button type="button" onClick={() => {
+                              setFormData({
+                                ...formData,
+                                dockingServices: [...formData.dockingServices, { name: '', squareMeters: '', hours: '', workers: '', days: '', price: '' }]
+                              })
+                            }} className="bg-[#134686] hover:bg-[#0f3a6e] text-white">Add another service</Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  <div className="space-y-2">
+                    <Label htmlFor="dryDockAvailability" className="text-[#134686] font-medium">Dry Dock Slots</Label>
+                    <Input id="dryDockAvailability" name="dryDockAvailability" type="text" placeholder="e.g., 2 or more vessels" value={formData.dryDockAvailability} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.dryDockAvailability ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.dryDockAvailability && (<p className="text-sm text-red-600">{errors.dryDockAvailability}</p>)}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label htmlFor="certificateShipBuilder" className="text-[#134686]">Ship Builder Certificate</Label>
+                        <Input id="certificateShipBuilder" name="certificateShipBuilder" type="file" onChange={(e) => {
+                          const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                          setFormData({ ...formData, certificateShipBuilder: file });
+                          if (errors.certificateShipBuilder) setErrors({ ...errors, certificateShipBuilder: '' });
+                        }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.certificateShipBuilder ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                        {errors.certificateShipBuilder && (<p className="text-sm text-red-600">{errors.certificateShipBuilder}</p>)}
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="certificateShipRepair" className="text-[#134686]">Ship Repair Certificate</Label>
+                        <Input id="certificateShipRepair" name="certificateShipRepair" type="file" onChange={(e) => {
+                          const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                          setFormData({ ...formData, certificateShipRepair: file });
+                          if (errors.certificateShipRepair) setErrors({ ...errors, certificateShipRepair: '' });
+                        }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.certificateShipRepair ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                        {errors.certificateShipRepair && (<p className="text-sm text-red-600">{errors.certificateShipRepair}</p>)}
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <Label htmlFor="certificateOther" className="text-[#134686]">Optional: ISO, Safety, Environmental Compliance</Label>
+                        <Input id="certificateOther" name="certificateOther" type="file" onChange={(e) => {
+                          const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
+                          setFormData({ ...formData, certificateOther: file });
+                        }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
                       </div>
                     </div>
-                  ))}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dryDockAvailability" className="text-[#134686] font-medium">Dry Dock Slots</Label>
-                  <Input id="dryDockAvailability" name="dryDockAvailability" type="text" placeholder="e.g., 2 or more vessels" value={formData.dryDockAvailability} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.dryDockAvailability ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                  {errors.dryDockAvailability && (<p className="text-sm text-red-600">{errors.dryDockAvailability}</p>)}
-                </div>
-                {/* Emergency Response section removed as requested */}
-                <div className="space-y-2">
-                 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label htmlFor="certificateShipBuilder" className="text-[#134686]">Ship Builder Certificate</Label>
-                      <Input id="certificateShipBuilder" name="certificateShipBuilder" type="file" onChange={(e) => {
-                        const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
-                        setFormData({ ...formData, certificateShipBuilder: file });
-                        if (errors.certificateShipBuilder) setErrors({ ...errors, certificateShipBuilder: '' });
-                      }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.certificateShipBuilder ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                      {errors.certificateShipBuilder && (<p className="text-sm text-red-600">{errors.certificateShipBuilder}</p>)}
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="certificateShipRepair" className="text-[#134686]">Ship Repair Certificate</Label>
-                      <Input id="certificateShipRepair" name="certificateShipRepair" type="file" onChange={(e) => {
-                        const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
-                        setFormData({ ...formData, certificateShipRepair: file });
-                        if (errors.certificateShipRepair) setErrors({ ...errors, certificateShipRepair: '' });
-                      }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.certificateShipRepair ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                      {errors.certificateShipRepair && (<p className="text-sm text-red-600">{errors.certificateShipRepair}</p>)}
-                    </div>
-                    <div className="space-y-1 sm:col-span-2">
-                      <Label htmlFor="certificateOther" className="text-[#134686]">Optional: ISO, Safety, Environmental Compliance</Label>
-                      <Input id="certificateOther" name="certificateOther" type="file" onChange={(e) => {
-                        const file = e.target.files && e.target.files[0] ? e.target.files[0] : undefined;
-                        setFormData({ ...formData, certificateOther: file });
-                      }} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686]`}/>
-                    </div>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactPerson" className="text-[#134686] font-medium">Contact Person (for coordination)</Label>
-                  <Input id="contactPerson" name="contactPerson" type="text" placeholder="e.g., Jane Doe" value={formData.contactPerson} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactPerson ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
-                  {errors.contactPerson && (<p className="text-sm text-red-600">{errors.contactPerson}</p>)}
+                  <div className="space-y-2">
+                    <Label htmlFor="contactPerson" className="text-[#134686] font-medium">Contact Person (for coordination)</Label>
+                    <Input id="contactPerson" name="contactPerson" type="text" placeholder="e.g., Jane Doe" value={formData.contactPerson} onChange={handleChange} className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.contactPerson ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}/>
+                    {errors.contactPerson && (<p className="text-sm text-red-600">{errors.contactPerson}</p>)}
+                  </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between pt-4">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleBack}
+                    className="text-[#134686]"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleContinue}
+                    className="bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium"
+                  >
+                    <ArrowRight className="mr-2 h-4 w-4" />
+                    Continue
+                  </Button>
                 </div>
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-[#134686] font-medium">
-                Email
-              </Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                placeholder="john@example.com"
-                value={formData.email}
-                onChange={handleChange}
-                className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
-                  errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-                }`}
-                required
-              />
-              {errors.email && (
-                <p className="text-sm text-red-600">{errors.email}</p>
-              )}
-            </div>
+            {/* Step 3: Email and Password */}
+            {currentStep === 3 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-[#134686] font-medium">
+                    Company Email
+                  </Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="john@example.com"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
+                      errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                    }`}
+                    required
+                  />
+                  {errors.email && (
+                    <p className="text-sm text-red-600">{errors.email}</p>
+                  )}
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-[#134686] font-medium">
-                Password
-              </Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Create a password"
-                value={formData.password}
-                onChange={handleChange}
-                className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
-                  errors.password ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-                }`}
-                required
-              />
-              {errors.password && (
-                <p className="text-sm text-red-600">{errors.password}</p>
-              )}
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password" className="text-[#134686] font-medium">
+                    Password
+                  </Label>
+                  <Input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Create a password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
+                      errors.password ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                    }`}
+                    required
+                  />
+                  {errors.password && (
+                    <p className="text-sm text-red-600">{errors.password}</p>
+                  )}
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword" className="text-[#134686] font-medium">
-                Confirm Password
-              </Label>
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Confirm your password"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
-                  errors.confirmPassword ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-                }`}
-                required
-              />
-              {errors.confirmPassword && (
-                <p className="text-sm text-red-600">{errors.confirmPassword}</p>
-              )}
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword" className="text-[#134686] font-medium">
+                    Confirm Password
+                  </Label>
+                  <Input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Confirm your password"
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
+                      errors.confirmPassword ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+                    }`}
+                    required
+                  />
+                  {errors.confirmPassword && (
+                    <p className="text-sm text-red-600">{errors.confirmPassword}</p>
+                  )}
+                </div>
 
-            <Button
-              type="submit"
-              className="w-full bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium"
-              disabled={isLoading}
-            >
-              {isLoading ? 'Creating account...' : 'Create account'}
-            </Button>
+                <div className="flex justify-between pt-4">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleBack}
+                    className="text-[#134686]"
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-[#134686] hover:bg-[#0f3a6e] text-white font-medium"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      'Creating account...'
+                    ) : (
+                      <>
+                        <UserPlus className="mr-2 h-4 w-4" />
+                        Register
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
           </form>
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">

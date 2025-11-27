@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { jwtVerify } from "jose"
 import crypto from "crypto"
+import { logUserActivity, ActivityType } from "@/lib/activity-logger"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
 
@@ -97,6 +98,18 @@ export async function POST(request: NextRequest) {
         status: 'ACTIVE'
       }
     })
+
+    // Log activity
+    await logUserActivity(
+      userId,
+      ActivityType.VESSEL_ADDED,
+      `Added vessel ${vesselName}`,
+      'Truck',
+      {
+        vesselId: vessel.id,
+        vesselName: vesselName
+      }
+    )
 
     return NextResponse.json({
       success: true,

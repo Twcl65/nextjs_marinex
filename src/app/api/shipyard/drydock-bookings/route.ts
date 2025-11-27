@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
 export async function GET(req: NextRequest) {
   try {
@@ -184,6 +185,7 @@ export async function PATCH(req: NextRequest) {
           imoNumber: string;
           companyName: string;
           shipyardName: string;
+          shipyardUserId: string;
         }>>`
           SELECT 
             db.userId,
@@ -191,7 +193,8 @@ export async function PATCH(req: NextRequest) {
             dr.vesselName,
             dr.imoNumber,
             dr.companyName,
-            db_bid.shipyardName
+            db_bid.shipyardName,
+            db.shipyardUserId
           FROM drydock_bookings db
           LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
           LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
@@ -232,6 +235,23 @@ Best regards,
           `
 
           console.log('Shipowner notification created successfully:', notificationId)
+        }
+
+        // Log activity for shipyard user
+        if (bookingDetails && bookingDetails.length > 0) {
+          const booking = bookingDetails[0]
+          await logUserActivity(
+            booking.shipyardUserId,
+            ActivityType.BOOKING_CONFIRMED,
+            `Booking confirmed for ${booking.vesselName}`,
+            'CheckCircle',
+            {
+              bookingId: bookingId,
+              vesselId: booking.vesselId,
+              vesselName: booking.vesselName,
+              shipyardName: booking.shipyardName
+            }
+          )
         }
       }
 

@@ -91,61 +91,44 @@ export async function GET() {
         take: 10 // Limit to 10 most urgent
       }),
 
-      // Recent Activities - get recent authority requests, bids, recertifications, and user registrations
-      Promise.all([
-        prisma.drydockAuthorityRequest.findMany({
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            createdAt: true,
-            status: true,
-            drydockRequest: {
-              select: {
-                vesselName: true
-              }
-            }
-          }
-        }),
-        prisma.drydockBid.findMany({
-          where: {
-            status: {
-              in: ['SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED', 'WITHDRAWN', 'RECOMMENDED']
-            }
-          },
-          take: 5,
-          orderBy: { submittedAt: 'desc' },
-          select: {
-            submittedAt: true,
-            status: true,
-            shipyardName: true
-          }
-        }),
-        prisma.drydockVesselRecertificate.findMany({
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            createdAt: true,
-            status: true,
-            vesselName: true
-          }
-        }),
-        prisma.user.findMany({
-          where: {
-            role: {
-              in: ['SHIPOWNER', 'SHIPYARD']
-            }
-          },
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            createdAt: true,
-            status: true,
-            fullName: true,
-            shipyardName: true,
-            role: true
-          }
+      // Recent Activities - get recent activities from users_activity table for all marina users
+      (async () => {
+        // Get all marina user IDs
+        const marinaUsers = await prisma.user.findMany({
+          where: { role: 'MARINA' },
+          select: { id: true }
         })
-      ])
+        const marinaUserIds = marinaUsers.map(u => u.id)
+        
+        if (marinaUserIds.length === 0) {
+          return []
+        }
+        
+        // Build the query with proper parameterization for MySQL
+        const userIdsPlaceholder = marinaUserIds.map(() => '?').join(',')
+        const query = `
+          SELECT 
+            id,
+            userId,
+            activityType,
+            message,
+            icon,
+            createdAt
+          FROM users_activity
+          WHERE userId IN (${userIdsPlaceholder})
+          ORDER BY createdAt DESC
+          LIMIT 10
+        `
+        
+        return prisma.$queryRawUnsafe<Array<{
+          id: string
+          userId: string
+          activityType: string
+          message: string
+          icon: string
+          createdAt: Date
+        }>>(query, ...marinaUserIds)
+      })()
     ])
 
     // Transform certification status data
@@ -180,68 +163,28 @@ export async function GET() {
       }
     })
 
-    // Transform recent activities
-    const activities: Array<{
-      type: string
+    // Transform recent activities from users_activity table
+    const activitiesRaw = Array.isArray(recentActivities) ? recentActivities : []
+    
+    const finalActivities = activitiesRaw.slice(0, 5).map((activity: {
+      id: string
+      userId: string
+      activityType: string
       message: string
-      time: string
       icon: string
-      date: Date
-    }> = []
-
-    // Add authority request activities
-    const [authorityActivities, bidActivities, recertActivities, userActivities] = recentActivities
-    authorityActivities.forEach((activity) => {
-      activities.push({
-        type: 'approval',
-        message: `New authority approval request for ${activity.drydockRequest.vesselName}`,
-        time: getTimeAgo(activity.createdAt),
-        icon: 'Stamp',
-        date: activity.createdAt
-      })
-    })
-
-    // Add bid activities
-    bidActivities.forEach((activity) => {
-      activities.push({
-        type: 'bidding',
-        message: `${activity.shipyardName} submitted a bid`,
-        time: getTimeAgo(activity.submittedAt),
-        icon: 'Gavel',
-        date: activity.submittedAt
-      })
-    })
-
-    // Add recertification activities
-    recertActivities.forEach((activity) => {
-      activities.push({
-        type: 'certification',
-        message: `Vessel recertification request for ${activity.vesselName}`,
-        time: getTimeAgo(activity.createdAt),
-        icon: 'BadgeCheck',
-        date: activity.createdAt
-      })
-    })
-
-    // Add user registration activities
-    userActivities.forEach((activity) => {
-      if (activity.status === 'ACTIVE') {
-        const userName = activity.fullName || activity.shipyardName || 'User'
-        activities.push({
-          type: 'user',
-          message: `New ${activity.role.toLowerCase()} registration: ${userName}`,
-          time: getTimeAgo(activity.createdAt),
-          icon: 'Users',
-          date: activity.createdAt
-        })
+      createdAt: Date
+    }) => {
+      const createdAt = activity.createdAt instanceof Date 
+        ? activity.createdAt 
+        : new Date(activity.createdAt)
+      
+      return {
+        type: activity.activityType,
+        message: activity.message,
+        time: getTimeAgo(createdAt),
+        icon: activity.icon || 'Users'
       }
     })
-
-    // Sort activities by date (most recent first) and take the most recent 4
-    activities.sort((a, b) => b.date.getTime() - a.date.getTime())
-    
-    // Remove date before returning
-    const finalActivities = activities.slice(0, 4).map(({ date: _date, ...rest }) => rest)
 
     return NextResponse.json({
       authorityApprovals: authorityApprovalsCount,

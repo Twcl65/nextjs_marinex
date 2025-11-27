@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import crypto from 'crypto'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
 const prisma = new PrismaClient()
 
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
       vesselName: string;
       companyName: string;
       shipyardName: string;
+      shipyardUserId: string;
     }>>`
       SELECT 
         ds.serviceName,
@@ -86,7 +88,8 @@ export async function POST(request: NextRequest) {
         dr.vesselId,
         dr.vesselName,
         dr.companyName,
-        db_bid.shipyardName
+        db_bid.shipyardName,
+        db.shipyardUserId
       FROM drydock_services ds
       LEFT JOIN drydock_bookings db ON ds.drydockBookingId = db.id
       LEFT JOIN drydock_requests dr ON db.drydockRequestId = dr.id
@@ -130,6 +133,24 @@ Best regards,
       `
 
       console.log('Shipowner notification created successfully:', notificationId)
+    }
+
+    // Log activity for shipyard user
+    if (serviceWithBooking && serviceWithBooking.length > 0) {
+      const serviceInfo = serviceWithBooking[0]
+      await logUserActivity(
+        serviceInfo.shipyardUserId,
+        ActivityType.PROGRESS_UPDATED,
+        `Progress updated for ${serviceInfo.serviceName} on ${serviceInfo.vesselName} (${progress}%)`,
+        'TrendingUp',
+        {
+          vesselId: serviceInfo.vesselId,
+          vesselName: serviceInfo.vesselName,
+          serviceName: serviceInfo.serviceName,
+          progressPercent: progress,
+          drydockRequestId: serviceId
+        }
+      )
     }
 
     return NextResponse.json({

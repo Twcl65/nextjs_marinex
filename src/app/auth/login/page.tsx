@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -18,10 +19,20 @@ export default function LoginPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const { user, login, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+
+  // Load remembered email on mount
+  useEffect(() => {
+    const rememberedEmail = localStorage.getItem('rememberedEmail');
+    if (rememberedEmail) {
+      setFormData(prev => ({ ...prev, email: rememberedEmail }));
+      setRememberMe(true);
+    }
+  }, []);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -62,6 +73,13 @@ export default function LoginPage() {
       const result = await login(formData.email, formData.password);
       
       if (result.success) {
+        // Handle remember me functionality
+        if (rememberMe) {
+          localStorage.setItem('rememberedEmail', formData.email);
+        } else {
+          localStorage.removeItem('rememberedEmail');
+        }
+
         // Show success toast
         toast({
           title: 'Successfully logged in',
@@ -125,26 +143,45 @@ export default function LoginPage() {
               <Label htmlFor="password" className="text-[#134686] font-medium">
                 Password
               </Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                placeholder="Enter your password"
-                value={formData.password}
-                onChange={handleChange}
-                className="border-[#13468633] focus:border-[#134686] focus:ring-[#134686]"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="border-[#13468633] focus:border-[#134686] focus:ring-[#134686] pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 cursor-pointer top-1/2 -translate-y-1/2 text-[#134686] hover:text-[#0f3a6e] focus:outline-none"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="remember"
                   checked={rememberMe}
-                  onCheckedChange={(checked) => setRememberMe(checked === true)}
+                  onCheckedChange={(checked) => {
+                    setRememberMe(checked === true);
+                    if (!checked) {
+                      localStorage.removeItem('rememberedEmail');
+                    }
+                  }}
                   className="border-[#1346864d] data-[state=checked]:bg-[#134686] data-[state=checked]:border-[#134686]"
                 />
-                <Label htmlFor="remember" className="text-sm text-[#134686] bg-white">
+                <Label htmlFor="remember" className="text-sm text-[#134686] bg-white cursor-pointer">
                   Remember me
                 </Label>
               </div>

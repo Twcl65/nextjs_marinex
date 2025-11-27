@@ -223,7 +223,8 @@ export default function ShipownerPage() {
                     {dashboardData.activities.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full text-center">
                         <div className="text-sm text-gray-500 mb-2">
-                          No recent activities found. Your activity will appear here as you use the system.
+                          No recent activities found. 
+                          <br />Your activity will appear here as you use the system.
                         </div>
                         <div className="text-xs text-gray-400 flex items-center gap-1">
                           <Clock className="w-3 h-3" />

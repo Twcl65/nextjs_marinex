@@ -22,7 +22,11 @@ import {
   CheckCircle, 
   AlertCircle,
   Bell,
-  Mail
+  Mail,
+  Wrench,
+  TrendingUp,
+  ThumbsUp,
+  UserX
 } from "lucide-react"
 
 export default function MarinaPage() {
@@ -55,7 +59,15 @@ export default function MarinaPage() {
           'Stamp': Stamp,
           'Gavel': Gavel,
           'BadgeCheck': BadgeCheck,
-          'Users': Users
+          'Users': Users,
+          'FileText': FileText,
+          'Wrench': Wrench,
+          'CheckCircle': CheckCircle,
+          'TrendingUp': TrendingUp,
+          'ThumbsUp': ThumbsUp,
+          'Bell': Bell,
+          'UserX': UserX,
+          'RefreshCw': RefreshCcw
         }
         
         const activitiesWithIcons = data.activities.map((activity: { type: string; message: string; time: string; icon: string }) => ({

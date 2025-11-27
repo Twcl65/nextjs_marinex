@@ -634,6 +634,7 @@ export default function VesselManagementPage() {
         />
         <div className="px-6 pt-0">
           <div className="mb-4">
+         
             <div className="mb-4">
               <h1 className="text-lg  md:text-xl font-bold text-[#134686] mb-0">Vessel Management</h1>
               <p className="text-sm text-gray-500">Manage fleet vessels, details, and maintenance.</p>
@@ -676,7 +677,9 @@ export default function VesselManagementPage() {
 
         {/* Vessels Display Section */}
         <div className="w-full flex flex-col">
-          
+        <div className="pl-6 pt-0 pb-2">
+            <div className="text-sm text-gray-500 mb-2">Below are your registered vessels. Click <span className="font-semibold text-gray-700">View Information</span> to see more details about each vessel.</div>
+          </div>
           <div className="flex flex-row flex-wrap gap-5 pl-6 pt-1 pb-5 w-full max-w-7xl">
             {isLoadingVessels ? (
               <div className="flex justify-center items-center py-8">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import crypto from 'crypto'
 import { uploadFileToS3 } from '@/lib/s3-upload'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
 const prisma = new PrismaClient()
 
@@ -140,6 +141,18 @@ export async function POST(request: NextRequest) {
         status: 'PENDING'
       }
     })
+
+    // Log activity
+    await logUserActivity(
+      userId,
+      ActivityType.RECERTIFICATION_REQUESTED,
+      `Recertification requested for ${vesselName}`,
+      'RefreshCw',
+      {
+        vesselId: vesselId,
+        vesselName: vesselName
+      }
+    )
 
     // Send notification to all marina users
     try {

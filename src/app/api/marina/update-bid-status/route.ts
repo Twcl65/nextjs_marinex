@@ -2,6 +2,39 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { BidStatus } from '@prisma/client'
 import crypto from 'crypto'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
+import { jwtVerify } from 'jose'
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
+
+async function getAuthenticatedUser(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null
+    }
+
+    const token = authHeader.substring(7)
+    const { payload } = await jwtVerify(token, JWT_SECRET)
+    return payload as { userId: string; email: string; role: string }
+  } catch (error) {
+    return null
+  }
+}
+
+async function getMarinaUserId(request: NextRequest): Promise<string | null> {
+  const authUser = await getAuthenticatedUser(request)
+  if (authUser && authUser.role === 'MARINA') {
+    return authUser.userId
+  }
+  
+  // Fallback: get first marina user
+  const marinaUser = await prisma.user.findFirst({
+    where: { role: 'MARINA' },
+    select: { id: true }
+  })
+  return marinaUser?.id || null
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -207,6 +240,28 @@ Best regards,
       } catch (notificationError) {
         // Log error but don't fail the request
         console.error('Error creating notifications:', notificationError)
+      }
+
+      // Log activity for marina user
+      if (statusValue === 'RECOMMENDED') {
+        const marinaUserId = await getMarinaUserId(req)
+        if (marinaUserId) {
+          const vesselName = vessel?.vesselName || drydockRequest.vesselName || 'vessel'
+          const shipyardName = bid.shipyardName || 'Shipyard'
+          await logUserActivity(
+            marinaUserId,
+            ActivityType.SHIPYARD_RECOMMENDED,
+            `Shipyard ${shipyardName} recommended for ${vesselName}`,
+            'ThumbsUp',
+            {
+              bidId: bidderId,
+              drydockRequestId: bid.drydockRequestId,
+              vesselId: drydockRequest.vesselId,
+              vesselName: vesselName,
+              shipyardName: shipyardName
+            }
+          )
+        }
       }
     }
 

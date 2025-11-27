@@ -3,6 +3,39 @@ import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import jsPDF from 'jspdf'
+import { logUserActivity, ActivityType } from '@/lib/activity-logger'
+import { jwtVerify } from 'jose'
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
+
+async function getAuthenticatedUser(request: NextRequest) {
+  try {
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null
+    }
+
+    const token = authHeader.substring(7)
+    const { payload } = await jwtVerify(token, JWT_SECRET)
+    return payload as { userId: string; email: string; role: string }
+  } catch (error) {
+    return null
+  }
+}
+
+async function getMarinaUserId(request: NextRequest): Promise<string | null> {
+  const authUser = await getAuthenticatedUser(request)
+  if (authUser && authUser.role === 'MARINA') {
+    return authUser.userId
+  }
+  
+  // Fallback: get first marina user
+  const marinaUser = await prisma.user.findFirst({
+    where: { role: 'MARINA' },
+    select: { id: true }
+  })
+  return marinaUser?.id || null
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -288,6 +321,24 @@ Best regards,
       } catch (notificationError) {
         console.error('Error creating notification for shipowner:', notificationError)
         // Don't fail the request if notification creation fails
+      }
+    }
+
+    // Log activity for marina user
+    if (status === 'APPROVED') {
+      const marinaUserId = await getMarinaUserId(request)
+      if (marinaUserId) {
+        await logUserActivity(
+          marinaUserId,
+          ActivityType.AUTHORITY_APPROVED,
+          `Authority request approved for ${authorityRequest.drydockRequest.vesselName}`,
+          'CheckCircle',
+          {
+            vesselId: authorityRequest.vesselId,
+            vesselName: authorityRequest.drydockRequest.vesselName,
+            requestId: requestId
+          }
+        )
       }
     }
 
