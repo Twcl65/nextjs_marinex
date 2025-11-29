@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,19 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArrowRight, UserPlus } from 'lucide-react';
+
+type UserServiceResult = {
+  id: string;
+  name: string;
+  squareMeters: number | null;
+  hours: number | null;
+  workers: number | null;
+  days: number | null;
+  price: string | null;
+};
+
+const MIN_SERVICE_SEARCH_CHARS = 2;
+const SERVICE_NAME_SUFFIX_LENGTH = 2;
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -49,7 +62,96 @@ export default function RegisterPage() {
   const [apiError, setApiError] = useState<string>('');
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
+  const [serviceSearchTerm, setServiceSearchTerm] = useState('');
+  const [serviceSearchResults, setServiceSearchResults] = useState<UserServiceResult[]>([]);
+  const [isServiceSearchLoading, setIsServiceSearchLoading] = useState(false);
+  const [serviceSearchError, setServiceSearchError] = useState('');
+  const [availableTemplateServices, setAvailableTemplateServices] = useState<UserServiceResult[]>([]);
+  const [isTemplateLoading, setIsTemplateLoading] = useState(false);
+  const [templateLoadError, setTemplateLoadError] = useState('');
   const router = useRouter();
+
+  useEffect(() => {
+    if (formData.role !== 'shipyard') {
+      setServiceSearchResults([]);
+      setServiceSearchError('');
+      setIsServiceSearchLoading(false);
+      return;
+    }
+
+    const trimmedTerm = serviceSearchTerm.trim();
+
+    if (trimmedTerm.length < MIN_SERVICE_SEARCH_CHARS) {
+      setServiceSearchResults([]);
+      setServiceSearchError('');
+      setIsServiceSearchLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(async () => {
+      setIsServiceSearchLoading(true);
+      try {
+        const response = await fetch(`/api/user-services?search=${encodeURIComponent(trimmedTerm)}`, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch services');
+        }
+
+        const data = await response.json();
+        setServiceSearchResults(data.services || []);
+        setServiceSearchError('');
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') {
+          return;
+        }
+        console.error('[Register] Service search failed:', error);
+        setServiceSearchResults([]);
+        setServiceSearchError('Unable to load saved services right now.');
+      } finally {
+        setIsServiceSearchLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [serviceSearchTerm, formData.role]);
+
+  useEffect(() => {
+    if (formData.role !== 'shipyard') {
+      setAvailableTemplateServices([]);
+      setTemplateLoadError('');
+      setIsTemplateLoading(false);
+      return;
+    }
+
+    const fetchTemplates = async () => {
+      setIsTemplateLoading(true);
+      try {
+        const response = await fetch('/api/user-services?mode=lookup');
+        if (!response.ok) {
+          throw new Error('Failed to load services');
+        }
+        const data = await response.json();
+        setAvailableTemplateServices(data.services || []);
+        setTemplateLoadError('');
+      } catch (error) {
+        console.error('[Register] Failed to load template services:', error);
+        setAvailableTemplateServices([]);
+        setTemplateLoadError('Unable to load existing services right now.');
+      } finally {
+        setIsTemplateLoading(false);
+      }
+    };
+
+    fetchTemplates();
+  }, [formData.role]);
+
+  const isServiceSearchActive = serviceSearchTerm.trim().length >= MIN_SERVICE_SEARCH_CHARS;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -63,6 +165,83 @@ export default function RegisterPage() {
         [e.target.name]: '',
       });
     }
+  };
+
+  const getNextServiceName = (baseName: string) => {
+    const normalizedBase = baseName.trim();
+    const regex = new RegExp(`^${normalizedBase}(?: (\\d{${SERVICE_NAME_SUFFIX_LENGTH}}))?$`, 'i');
+    let maxSuffix = 0;
+    let hasExactMatch = false;
+
+    formData.dockingServices.forEach((svc) => {
+      const match = svc.name.match(regex);
+      if (match) {
+        if (match[1]) {
+          const suffix = parseInt(match[1], 10);
+          if (!Number.isNaN(suffix)) {
+            maxSuffix = Math.max(maxSuffix, suffix);
+          }
+        } else {
+          hasExactMatch = true;
+        }
+      }
+    });
+
+    if (!hasExactMatch && maxSuffix === 0) {
+      return normalizedBase;
+    }
+
+    const nextSuffix = maxSuffix + 1;
+    return `${normalizedBase} ${String(nextSuffix).padStart(SERVICE_NAME_SUFFIX_LENGTH, '0')}`;
+  };
+
+  const mapServiceResultToFormEntry = (service: UserServiceResult) => {
+    const baseName = service.name || 'Service';
+    const uniqueName = getNextServiceName(baseName);
+
+    return {
+      name: uniqueName,
+      squareMeters: service.squareMeters?.toString() ?? '',
+      hours: service.hours?.toString() ?? '',
+      workers: service.workers?.toString() ?? '',
+      days: service.days?.toString() ?? '',
+      price: service.price || '',
+    };
+  };
+
+  const handleAddServiceFromSearch = (service: UserServiceResult) => {
+    setFormData((prev) => {
+      const formattedService = mapServiceResultToFormEntry(service);
+
+      const emptyIndex = prev.dockingServices.findIndex(
+        (s) =>
+          !s.name &&
+          !s.squareMeters &&
+          !s.hours &&
+          !s.workers &&
+          !s.days &&
+          !s.price
+      );
+
+      const updatedServices =
+        emptyIndex !== -1
+          ? prev.dockingServices.map((svc, idx) => (idx === emptyIndex ? formattedService : svc))
+          : [...prev.dockingServices, formattedService];
+
+      return {
+        ...prev,
+        dockingServices: updatedServices,
+      };
+    });
+
+    setErrors((prev) => {
+      if (!prev.dockingServices) {
+        return prev;
+      }
+      const nextErrors = { ...prev };
+      delete nextErrors.dockingServices;
+      return nextErrors;
+    });
   };
 
   const validateStep = (step: number): boolean => {
@@ -596,6 +775,113 @@ export default function RegisterPage() {
                     <div className="space-y-2">
                       <Label className="text-[#134686] font-medium">Docking Services</Label>
                       {errors.dockingServices && (<p className="text-sm text-red-600">{errors.dockingServices}</p>)}
+                    </div>
+                    <div className="space-y-2 rounded-md border border-dashed border-[#13468640] bg-[#f7f9ff] p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Input
+                          type="text"
+                          placeholder="Search existing drydock services"
+                          value={serviceSearchTerm}
+                          onChange={(e) => setServiceSearchTerm(e.target.value)}
+                          className="border-[#13468633] focus:border-[#134686] focus:ring-[#134686]"
+                        />
+                        {serviceSearchTerm && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="text-[#134686] hover:bg-[#1346860d]"
+                            onClick={() => {
+                              setServiceSearchTerm('');
+                              setServiceSearchResults([]);
+                              setServiceSearchError('');
+                            }}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-[#134686]">
+                        Start typing (min {MIN_SERVICE_SEARCH_CHARS} characters) to reuse services saved in your account.
+                      </p>
+                      {isServiceSearchLoading && (
+                        <p className="text-sm text-gray-600">Loading saved services...</p>
+                      )}
+                      {serviceSearchError && (
+                        <p className="text-sm text-red-600">{serviceSearchError}</p>
+                      )}
+                      {isServiceSearchActive && !isServiceSearchLoading && !serviceSearchError && (
+                        serviceSearchResults.length > 0 ? (
+                          <div className="max-h-56 overflow-y-auto divide-y divide-[#13468622] rounded-md border border-[#1346861f] bg-white">
+                            {serviceSearchResults.map((service) => (
+                              <div key={service.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <p className="text-sm font-semibold text-[#134686]">{service.name}</p>
+                                  <p className="text-xs text-gray-600">
+                                    Sqm: {service.squareMeters ?? '—'} • Hours: {service.hours ?? '—'} • Workers: {service.workers ?? '—'} • Days: {service.days ?? '—'} • Price: {service.price || '—'}
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="bg-[#134686] hover:bg-[#0f3a6e] text-white"
+                                  onClick={() => handleAddServiceFromSearch(service)}
+                                >
+                                  Use service
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500">
+                            No saved services found for &ldquo;{serviceSearchTerm}&rdquo;.
+                          </p>
+                        )
+                      )}
+                    </div>
+                    <div className="rounded-md border border-[#13468633] bg-white p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-[#134686]">All Available Services</p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-[#134686] hover:bg-[#1346860d]"
+                          onClick={() => {
+                            setServiceSearchTerm('');
+                            setServiceSearchResults([]);
+                            setServiceSearchError('');
+                          }}
+                        >
+                          Clear search
+                        </Button>
+                      </div>
+                      {isTemplateLoading ? (
+                        <p className="text-sm text-gray-600">Loading available services...</p>
+                      ) : templateLoadError ? (
+                        <p className="text-sm text-red-600">{templateLoadError}</p>
+                      ) : availableTemplateServices.length === 0 ? (
+                        <p className="text-sm text-gray-500">No services found yet.</p>
+                      ) : (
+                        <div className="max-h-72 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {availableTemplateServices.map((service) => (
+                            <div key={`full-template-${service.id}`} className="rounded-md border border-[#13468622] p-3 space-y-1">
+                              <p className="text-sm font-semibold text-[#134686]">{service.name}</p>
+                              <p className="text-xs text-gray-600">
+                                Sqm: {service.squareMeters ?? '—'} • Hours: {service.hours ?? '—'} • Workers: {service.workers ?? '—'} • Days: {service.days ?? '—'} • Price: {service.price || '—'}
+                              </p>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-full border-[#13468633] text-[#134686] hover:bg-[#1346860d]"
+                                onClick={() => handleAddServiceFromSearch(service)}
+                              >
+                                Add to my services
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {formData.dockingServices.map((svc, idx) => (
                       <div key={idx} className="rounded-md border border-[#13468633] p-3 space-y-3">

@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Edit, Trash2, User, ChevronLeft, ChevronRight } from "lucide-react"
+import { TableOfContents, User, ChevronLeft, ChevronRight } from "lucide-react"
 import React, { useEffect, useState } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -248,8 +248,6 @@ export default function ManageUsersPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [isRejecting, setIsRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false)
   const [isSuspending, setIsSuspending] = useState(false)
   const [suspensionReason, setSuspensionReason] = useState("")
@@ -580,57 +578,8 @@ Marinex Authority Team
     setRejectionReason("")
   }
 
-  const handleDeleteClick = (user: User) => {
+  const handleSuspendClick = (user: User) => {
     setSelectedUser(user)
-    setDeleteDialogOpen(true)
-  }
-
-  const handleDeleteConfirm = async () => {
-    if (!selectedUser || isDeleting) return
-
-    setIsDeleting(true)
-
-    try {
-      // Delete user from database
-      const response = await fetch(`/api/users/${selectedUser.id}`, {
-        method: 'DELETE',
-      })
-
-      if (response.ok) {
-        // Remove user from local state
-        setUsers(users.filter(user => user.id !== selectedUser.id))
-
-        // Show success toast
-        toast({
-          variant: "success",
-          title: "User Deleted Successfully",
-          description: `${selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName} has been deleted.`,
-        })
-
-        setDeleteDialogOpen(false)
-        setSelectedUser(null)
-      } else {
-        throw new Error('Failed to delete user')
-      }
-    } catch (error) {
-      console.error('Error deleting user:', error)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to delete user. Please try again.",
-      })
-    } finally {
-      setIsDeleting(false)
-    }
-  }
-
-  const handleDeleteCancel = () => {
-    setDeleteDialogOpen(false)
-    setSelectedUser(null)
-    setIsDeleting(false)
-  }
-
-  const handleSuspendClick = () => {
     setEditDialogOpen(false)
     setSuspendDialogOpen(true)
   }
@@ -749,7 +698,6 @@ Marinex Authority Team
 
   const handleSuspendCancel = () => {
     setSuspendDialogOpen(false)
-    setEditDialogOpen(true)
     setIsSuspending(false)
     setSuspensionReason("")
   }
@@ -1014,10 +962,14 @@ Marinex Authority Team
                           </span>
                         </TableCell>
                         <TableCell className="py-2">
-                          <span className="text-sm text-gray-600 truncate block max-w-[150px]" title={user.email}>
-                            {user.email}
-                          </span>
-                        </TableCell>
+  <span
+    className="text-sm text-gray-600 truncate block max-w-[150px]"
+    title={user.email}
+  >
+    {user.email.length > 10 ? user.email.substring(0, 10) + "..." : user.email}
+  </span>
+</TableCell>
+
                         <TableCell className="py-2">
                           <span className="text-sm text-gray-600 truncate block max-w-[100px]" title={user.contactNumber || 'N/A'}>
                             {user.contactNumber || 'N/A'}
@@ -1044,25 +996,27 @@ Marinex Authority Team
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-2">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="bg-green-600 text-white border-green-600 hover:bg-green-700 hover:text-white h-7 w-7 p-0"
-                              title="Edit User"
+                              className="bg-green-600 text-white border-green-600 hover:bg-green-700 hover:text-white h-8 px-3"
+                              title="View Info"
                               onClick={() => handleEditUser(user)}
                             >
-                              <Edit className="h-4 w-4" />
+                              <TableOfContents className="h-4 w-4 mr-1" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="bg-red-600 text-white border-red-600 hover:bg-red-700 hover:text-white h-7 w-7 p-0"
-                              title="Delete User"
-                              onClick={() => handleDeleteClick(user)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {user.status === 'ACTIVE' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="bg-orange-600 text-white border-orange-600 hover:bg-orange-700 hover:text-white h-8 px-3"
+                                title="Suspend User"
+                                onClick={() => handleSuspendClick(user)}
+                              >
+                                Suspend
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1447,16 +1401,6 @@ Marinex Authority Team
             </DialogFooter>
           )}
 
-          {selectedUser?.status === 'ACTIVE' && (
-            <DialogFooter className="flex justify-center">
-              <div className="flex gap-3">
-                <Button className="bg-orange-600 hover:bg-orange-700 text-white border-orange-600" onClick={handleSuspendClick}>
-                  Suspend Account
-                </Button>
-              </div>
-            </DialogFooter>
-          )}
-
           {selectedUser?.status === 'SUSPENDED' && (
             <DialogFooter className="flex justify-center">
               <div className="flex gap-3">
@@ -1574,50 +1518,10 @@ Marinex Authority Team
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
-        if (!open) {
-          setDeleteDialogOpen(false)
-          setSelectedUser(null)
-          setIsDeleting(false)
-        }
-      }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[#134686]">Confirm Deletion</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this user? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-4">
-            <p className="text-sm text-gray-600">
-              You are about to delete <strong>{selectedUser?.role === 'SHIPOWNER' ? selectedUser?.fullName : selectedUser?.shipyardName}</strong> permanently.
-            </p>
-          </div>
-
-          <DialogFooter className="flex justify-center">
-            <div className="flex gap-3">
-              <Button className="bg-gray-500 hover:bg-gray-600 text-white border-gray-500" onClick={handleDeleteCancel}>
-                Cancel
-              </Button>
-              <Button 
-                className="bg-red-600 hover:bg-red-700 text-white border-red-600 disabled:opacity-50 disabled:cursor-not-allowed" 
-                onClick={handleDeleteConfirm}
-                disabled={isDeleting}
-              >
-                {isDeleting ? "Delete..." : "Delete"}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Suspend Confirmation Dialog */}
       <Dialog open={suspendDialogOpen} onOpenChange={(open) => {
         if (!open) {
           setSuspendDialogOpen(false)
-          setEditDialogOpen(true)
           setIsSuspending(false)
           setSuspensionReason("")
         }

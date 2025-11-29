@@ -1,12 +1,12 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { 
   Home,
   Hammer,
   Eye,
   Wrench,
+  Ship,
   FileText
 } from "lucide-react"
 import { usePathname } from "next/navigation"
@@ -65,13 +65,9 @@ export function ShipyardSidebar({ ...props }: React.ComponentProps<typeof Sideba
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" className="h-14" asChild>
               <a href="/pages/shipyard">
-                <Image 
-                  src="/assets/marinex_logo.png" 
-                  alt="Marinex Logo" 
-                  width={32} 
-                  height={32}
-                  className="rounded-full"
-                />
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#134686]">
+                  <Ship className="h-5 w-5 text-white" />
+                </div>
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-medium">
                     {user?.fullName || user?.shipyardName || user?.email || "Marine Authority"}

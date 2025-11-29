@@ -247,12 +247,14 @@ export default function DrydockManagementPage() {
   const [loadingVessels, setLoadingVessels] = useState(true)
   const [userServices, setUserServices] = useState<{
     id: string;
+    userId: string;
     name: string;
     squareMeters: number;
     hours: number;
     workers: number;
     days: number;
     price: string;
+    shipyardName: string;
   }[]>([])
   const [loadingServices, setLoadingServices] = useState(true)
   const [form, setForm] = useState({
@@ -345,7 +347,31 @@ export default function DrydockManagementPage() {
         if (response.ok) {
           const data = await response.json()
           console.log('All services data:', data)
-          setUserServices(data.services || [])
+          const normalizedServices = (data.services || []).map((service: {
+            id: string;
+            userId: string;
+            name: string;
+            squareMeters: number;
+            hours: number;
+            workers: number;
+            days: number;
+            price: string;
+            user?: {
+              shipyardName?: string | null;
+              fullName?: string | null;
+            }
+          }) => ({
+            id: service.id,
+            userId: service.userId,
+            name: service.name,
+            squareMeters: service.squareMeters,
+            hours: service.hours,
+            workers: service.workers,
+            days: service.days,
+            price: service.price,
+            shipyardName: service.user?.shipyardName ?? service.user?.fullName ?? 'Unnamed Shipyard'
+          }))
+          setUserServices(normalizedServices)
         } else {
           console.error('Failed to fetch user services')
           toast({
@@ -541,19 +567,29 @@ export default function DrydockManagementPage() {
     }))
   }
 
-  const handleServiceToggle = (service: string) => {
+  const handleServiceToggle = (serviceId: string) => {
+    const wasSelected = form.servicesNeeded.includes(serviceId)
+
     setForm(prev => ({
       ...prev,
-      servicesNeeded: prev.servicesNeeded.includes(service)
-        ? prev.servicesNeeded.filter(s => s !== service)
-        : [...prev.servicesNeeded, service]
+      servicesNeeded: wasSelected
+        ? prev.servicesNeeded.filter(id => id !== serviceId)
+        : [...prev.servicesNeeded, serviceId]
     }))
+
+    if (wasSelected) {
+      setServiceAreas(prev => {
+        if (!(serviceId in prev)) return prev
+        const { [serviceId]: _removed, ...rest } = prev
+        return rest
+      })
+    }
   }
 
-  const handleServiceAreaChange = (service: string, value: string) => {
+  const handleServiceAreaChange = (serviceId: string, value: string) => {
     setServiceAreas(prev => ({
       ...prev,
-      [service]: value
+      [serviceId]: value
     }))
   }
 
@@ -572,8 +608,8 @@ export default function DrydockManagementPage() {
 
   const handleSquareMetersContinue = () => {
     // Validate that all selected services have square meter areas
-    const missingAreas = form.servicesNeeded.filter(serviceName => {
-      const area = serviceAreas[serviceName]
+    const missingAreas = form.servicesNeeded.filter(serviceId => {
+      const area = serviceAreas[serviceId]
       return !area || area === '' || parseFloat(area) <= 0
     })
     
@@ -609,8 +645,8 @@ export default function DrydockManagementPage() {
     if (!form.scopeOfWork) errors.file = 'Scope of work file is required'
     
     // Validate that all selected services have square meter areas
-    const missingAreas = form.servicesNeeded.filter(serviceName => {
-      const area = serviceAreas[serviceName]
+    const missingAreas = form.servicesNeeded.filter(serviceId => {
+      const area = serviceAreas[serviceId]
       return !area || area === '' || parseFloat(area) <= 0
     })
     
@@ -628,10 +664,14 @@ export default function DrydockManagementPage() {
     setIsSubmitting(true)
     try {
       // Prepare services data with areas
-      const servicesWithAreas = form.servicesNeeded.map(serviceName => {
-        const area = serviceAreas[serviceName] || '0'
+      const servicesWithAreas = form.servicesNeeded.map(serviceId => {
+        const service = userServices.find(s => s.id === serviceId)
+        const area = serviceAreas[serviceId] || '0'
         return {
-          name: serviceName,
+          id: serviceId,
+          name: service?.name || 'Service',
+          shipyardId: service?.userId || '',
+          shipyardName: service?.shipyardName || '',
           area: parseFloat(area) || 0
         }
       })
@@ -1618,12 +1658,17 @@ export default function DrydockManagementPage() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {form.servicesNeeded.map((serviceName) => {
-                              const service = userServices.find(s => s.name === serviceName)
-                              const area = serviceAreas[serviceName] || '0'
+                            {form.servicesNeeded.map((serviceId) => {
+                              const service = userServices.find(s => s.id === serviceId)
+                              const area = serviceAreas[serviceId] || '0'
                               return (
-                                <TableRow key={serviceName} className="border-b border-gray-200">
-                                  <TableCell className="text-sm text-gray-700">{serviceName}</TableCell>
+                                <TableRow key={serviceId} className="border-b border-gray-200">
+                                  <TableCell className="text-sm text-gray-700">
+                                    <span className="block font-semibold text-[#134686]">
+                                      {service?.shipyardName || 'Shipyard'}
+                                    </span>
+                                    <span className="block text-gray-700">{service?.name || 'Service'}</span>
+                                  </TableCell>
                                   <TableCell className="text-sm text-gray-700 font-medium">
                                     {area ? `${parseFloat(area).toLocaleString('en-PH')} m²` : 'Not specified'}
                                   </TableCell>
@@ -1708,42 +1753,53 @@ export default function DrydockManagementPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {userServices.map((service) => (
-                    <div 
-                      key={service.id} 
-                      className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
-                        form.servicesNeeded.includes(service.name)
-                          ? 'border-[#134686] bg-blue-50'
-                          : 'border-gray-200 bg-gray-50 hover:border-gray-300'
-                      }`}
-                      onClick={() => handleServiceToggle(service.name)}
-                    >
-                      <div className="flex items-start">
-                        <Checkbox
-                          id={`select-${service.id}`}
-                          checked={form.servicesNeeded.includes(service.name)}
-                          onCheckedChange={() => handleServiceToggle(service.name)}
-                          className="mt-1 mr-3"
-                        />
-                        <div className="flex-1">
-                          <Label 
-                            htmlFor={`select-${service.id}`} 
-                            className="text-sm font-medium cursor-pointer select-none"
-                          >
-                            {service.name}
-                          </Label>
-                          <div className="text-xs text-gray-600 mt-2">
-                            <div className="font-semibold text-[#134686]">
-                              ₱{parseFloat(service.price).toLocaleString('en-PH')}
+                  {userServices.map((service) => {
+                    const isSelected = form.servicesNeeded.includes(service.id)
+                    return (
+                      <div 
+                        key={service.id} 
+                        className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                          isSelected
+                            ? 'border-[#134686] bg-blue-50'
+                            : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                        }`}
+                        onClick={() => handleServiceToggle(service.id)}
+                      >
+                        <div className="flex items-start">
+                          <Checkbox
+                            id={`select-${service.id}`}
+                            checked={isSelected}
+                            onCheckedChange={() => handleServiceToggle(service.id)}
+                            className="mt-1 mr-3"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className="text-xs font-semibold text-[#0f3a6e] bg-[#e8f0ff] px-2 py-0.5 rounded-full"
+                                title={service.shipyardName}
+                              >
+                                {service.shipyardName}
+                              </span>
+                              <Label 
+                                htmlFor={`select-${service.id}`} 
+                                className="text-sm font-medium cursor-pointer select-none"
+                              >
+                                {service.name}
+                              </Label>
                             </div>
-                            <div className="text-gray-500 mt-1">
-                              per {service.squareMeters} m²
+                            <div className="text-xs text-gray-600 mt-2">
+                              <div className="font-semibold text-[#134686]">
+                                ₱{parseFloat(service.price).toLocaleString('en-PH')}
+                              </div>
+                              <div className="text-gray-500 mt-1">
+                                per {service.squareMeters} m²
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -1788,8 +1844,8 @@ export default function DrydockManagementPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {form.servicesNeeded.map((serviceName) => {
-                    const service = userServices.find(s => s.name === serviceName)
+                  {form.servicesNeeded.map((serviceId) => {
+                    const service = userServices.find(s => s.id === serviceId)
                     if (!service) return null
                     
                     return (
@@ -1808,8 +1864,8 @@ export default function DrydockManagementPage() {
                             className="bg-gray-50"
                             step="any"
                             placeholder="Enter square meters"
-                            value={serviceAreas[serviceName] || ''}
-                            onChange={e => handleServiceAreaChange(serviceName, e.target.value)}
+                            value={serviceAreas[serviceId] || ''}
+                            onChange={e => handleServiceAreaChange(serviceId, e.target.value)}
                           />
                         </div>
                       </div>

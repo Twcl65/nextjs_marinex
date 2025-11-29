@@ -41,14 +41,25 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    console.log('Fetching all services from user_services table')
+    const { searchParams } = new URL(request.url)
+    const search = searchParams.get('search')?.trim()
+    const isLookup = searchParams.get('mode') === 'lookup'
 
-    // Get all services from user_services table (all users)
+    console.log('Fetching services from user_services table', search ? `with search: ${search}` : '')
+
     const services = await prisma.userService.findMany({
+      where: search
+        ? {
+            name: {
+              contains: search,
+            }
+          }
+        : undefined,
       select: {
         id: true,
+        userId: true,
         name: true,
         squareMeters: true,
         hours: true,
@@ -56,17 +67,23 @@ export async function GET() {
         days: true,
         price: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        user: {
+          select: {
+            shipyardName: true,
+            fullName: true
+          }
+        }
       },
       orderBy: {
         createdAt: 'desc'
-      }
+      },
+      take: isLookup ? undefined : 20
     })
 
-    console.log('Found all services:', services)
+    console.log('Found services:', services.length)
 
     return NextResponse.json({ services })
-
   } catch (error) {
     console.error('Error fetching services:', error)
     return NextResponse.json(
