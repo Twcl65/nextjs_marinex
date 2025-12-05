@@ -144,7 +144,7 @@ export default function ShipownerPage() {
                   <div className="flex flex-col justify-center h-full">
                     <span className="text-xs text-gray-600 font-medium">Expiring Soon</span>
                     <span className="text-lg font-bold text-gray-900">{dashboardData.expiringSoon}</span>
-                    <span className="text-xs text-gray-500">Within 90 days</span>
+                    <span className="text-xs text-gray-500">Within a year</span>
                   </div>
                 </Card>
               </div>

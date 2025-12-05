@@ -148,6 +148,7 @@ export async function PATCH(request: NextRequest) {
         requestDate: true,
         finalScopeOfWorkUrl: true,
         authorityCertificate: true,
+        drydockRequestId: true,
         drydockRequest: {
           select: {
             vesselName: true,
@@ -318,6 +319,45 @@ Best regards,
         `
 
         console.log('Shipowner notification created successfully:', notificationId)
+
+        // Get shipyardUserId from the booking
+        const booking = await prisma.drydockBooking.findFirst({
+          where: {
+            drydockRequestId: authorityRequest.drydockRequestId
+          },
+          select: {
+            shipyardUserId: true
+          }
+        });
+
+        if (booking?.shipyardUserId) {
+          const shipyardMessage = `Dear Shipyard,
+
+The authority request for **${authorityRequest.drydockRequest.vesselName}** (IMO: ${authorityRequest.drydockRequest.imoNumber}) has been **approved** by the Maritime Industry Authority.
+
+${certificateUrl ? 'The authority certificate has been generated and is now available for download through your dashboard.' : 'The request has been approved and is being processed.'}
+
+You can view and download the authority certificate through your dashboard.
+
+Best regards,
+**Maritime Industry Authority**`
+
+          const shipyardNotificationId = crypto.randomUUID()
+          await prisma.$executeRaw`
+            INSERT INTO drydock_mc_notifications (
+              id, userId, vesselId, drydockReport, drydockCertificate, 
+              safetyCertificate, vesselPlans, title, type, message, 
+              isRead, createdAt, updatedAt
+            ) VALUES (
+              ${shipyardNotificationId}, ${booking.shipyardUserId}, ${authorityRequest.vesselId}, 
+              0, 0, 0, 0,
+              'Authority Request Approved', 'Authority Approval',
+              ${shipyardMessage}, 0, NOW(), NOW()
+            )
+          `
+          console.log('Shipyard notification created successfully:', shipyardNotificationId)
+        }
+
       } catch (notificationError) {
         console.error('Error creating notification for shipowner:', notificationError)
         // Don't fail the request if notification creation fails

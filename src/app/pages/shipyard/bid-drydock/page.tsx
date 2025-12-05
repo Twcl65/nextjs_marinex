@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog as ConfirmDialog, DialogContent as ConfirmDialogContent, DialogHeader as ConfirmDialogHeader, DialogTitle as ConfirmDialogTitle, DialogFooter as ConfirmDialogFooter, DialogDescription as ConfirmDialogDescription } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { CalendarCheck, Loader2 } from 'lucide-react';
@@ -42,6 +43,15 @@ interface DrydockRequest {
     company_logo?: string | null;
     company_name?: string | null;
     company_location?: string | null;
+}
+
+interface BidHistoryEntry {
+    vesselName: string;
+    companyName: string;
+    bidAmount: number;
+    bidDate: string;
+    status: string;
+    certificateUrl?: string;
 }
 
 interface BidForm {
@@ -459,6 +469,10 @@ export default function BidDrydockPage() {
     const [isSubmittingBid, setIsSubmittingBid] = useState(false);
     const [liquidatedDamagesRate, setLiquidatedDamagesRate] = useState(0.5);
 
+    const [showHistoryDialog, setShowHistoryDialog] = useState(false);
+    const [bidHistory, setBidHistory] = useState<BidHistoryEntry[]>([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+
     const totalBidAmount = calculationResults?.finalBid ?? 0;
     const additionalCostsTotal = calculationResults?.additionalCosts?.total ?? 0;
     const grandTotalAmount = calculationResults?.grandTotal ?? (totalBidAmount + additionalCostsTotal);
@@ -493,6 +507,36 @@ export default function BidDrydockPage() {
             setCalculationResults(prev => prev ? { ...prev, bidDocumentUrl: refreshedUrl } : prev);
         } finally {
             setIsGeneratingDocument(false);
+        }
+    };
+
+    const fetchBidHistory = async () => {
+        if (!user?.id) return;
+        setLoadingHistory(true);
+        try {
+            // Re-using the drydock-bidding endpoint with a query param
+            const response = await fetch(`/api/shipyard/drydock-bidding?userId=${user.id}&detailed=true`);
+            if (response.ok) {
+                const data = await response.json();
+                setBidHistory(data.bids || []);
+            } else {
+                toast({
+                    title: "Error fetching history",
+                    description: "Could not load your bid history at this time.",
+                    variant: "destructive"
+                });
+                setBidHistory([]);
+            }
+        } catch (error) {
+            console.error('Error fetching bid history:', error);
+            toast({
+                title: "Error",
+                description: "An error occurred while fetching bid history.",
+                variant: "destructive"
+            });
+            setBidHistory([]);
+        } finally {
+            setLoadingHistory(false);
         }
     };
 
@@ -1077,332 +1121,300 @@ export default function BidDrydockPage() {
         taxesAndFees?: TaxesAndFees;
         additionalCosts?: AdditionalCosts;
         requiredDocumentation?: string[];
+        grandTotal: number;
     }): Promise<string | null> {
-        const currentDate = new Date().toLocaleDateString();
-        const vesselName = selectedRequest?.vessel?.name || 'Unknown Vessel';
-        const companyName = selectedRequest?.company_name || 'Unknown Company';
-        const imoNumber = selectedRequest?.vessel?.imo_number || 'N/A';
-        
-        const doc = new jsPDF();
-        let yPosition = 20;
-        
-        // Header with border
-        doc.setDrawColor(0, 0, 0);
-        doc.setLineWidth(0.5);
-        doc.rect(15, 10, 180, 25);
-        
-        // Title
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text('DRYDOCK SERVICE BID', 105, 22, { align: 'center' });
-        
-        // Subtitle
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Marine Drydock Services', 105, 28, { align: 'center' });
-        
-        yPosition = 45;
-        
-        // Project Information Section
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('PROJECT INFORMATION', 20, yPosition);
-        yPosition += 8;
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Date: ${currentDate}`, 20, yPosition);
-        yPosition += 6;
-        doc.text(`Vessel Name: ${vesselName}`, 20, yPosition);
-        yPosition += 6;
-        doc.text(`IMO Number: ${imoNumber}`, 20, yPosition);
-        yPosition += 6;
-        doc.text(`Company: ${companyName}`, 20, yPosition);
-        yPosition += 15;
-        
-        // Selected Services Section
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('SELECTED SERVICES', 20, yPosition);
-        yPosition += 8;
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        results.services.forEach((service: {
-            name: string;
-            reqSqM: number;
-            refPrice: number;
-            refSqM: number;
-            refHours: number;
-            refWorkers: number;
-            refDays: number;
-            unitPrice: number;
-            workerHoursPerSqM: number;
-            serviceCost: number;
-            totalWorkerHours: number;
-            serviceDays: number;
-        }) => {
-            doc.text(`• ${service.name}`, 25, yPosition);
-            yPosition += 5;
-        });
-        yPosition += 10;
-        
-        // Service Calculations Table
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('SERVICE CALCULATIONS', 20, yPosition);
-        yPosition += 10;
-        
-        // Table header
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Service', 20, yPosition);
-        doc.text('Area (m²)', 80, yPosition);
-        doc.text('Unit Price', 110, yPosition);
-        doc.text('Service Cost', 150, yPosition);
-        doc.text('Days', 180, yPosition);
-        
-        // Draw table header line
-        doc.line(20, yPosition + 2, 190, yPosition + 2);
-        yPosition += 8;
-        
-        // Table data
-        doc.setFont('helvetica', 'normal');
-        results.services.forEach((service: {
-            name: string;
-            reqSqM: number;
-            refPrice: number;
-            refSqM: number;
-            refHours: number;
-            refWorkers: number;
-            refDays: number;
-            unitPrice: number;
-            workerHoursPerSqM: number;
-            serviceCost: number;
-            totalWorkerHours: number;
-            serviceDays: number;
-        }) => {
-            if (yPosition > 250) {
-                doc.addPage();
-                yPosition = 20;
+
+        const getBase64Image = async (url: string): Promise<string | null> => {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) return null;
+                const blob = await response.blob();
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error) {
+                console.error("Error fetching image for PDF:", error);
+                return null;
             }
-            
-            doc.text(service.name, 20, yPosition);
-            doc.text(`${service.reqSqM}`, 80, yPosition);
-            doc.text(`₱${service.unitPrice.toLocaleString()}`, 110, yPosition);
-            doc.text(`₱${service.serviceCost.toLocaleString()}`, 150, yPosition);
-            doc.text(`${Math.round(service.serviceDays)}`, 180, yPosition);
-            yPosition += 6;
-        });
+        };
+
+        const doc = new jsPDF();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const pageWidth = doc.internal.pageSize.getWidth();
+
+        const marinexBlue = '#134686';
+        const lightGray = '#F3F4F6';
+        const darkGray = '#374151';
+        const midGray = '#6B7281';
+
+        const logoUrl = '/assets/marinex_logo.png';
+        const logoData = await getBase64Image(logoUrl);
+
+        const addHeader = () => {
+            if (logoData) {
+                doc.addImage(logoData, 'PNG', 14, 12, 35, 11);
+            }
+            doc.setFontSize(18);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(darkGray);
+            doc.text('BID QUOTATION', pageWidth - 14, 20, { align: 'right' });
+
+            doc.setDrawColor(marinexBlue);
+            doc.setLineWidth(1);
+            doc.line(14, 30, pageWidth - 14, 30);
+        };
+
+        const addFooter = (pageNumber: number) => {
+            const footerY = pageHeight - 20;
+            doc.setDrawColor(marinexBlue);
+            doc.setLineWidth(0.5);
+            doc.line(14, footerY, pageWidth - 14, footerY);
+
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(midGray);
+            doc.text('Marinex Inc. | Generated by Marinex Portal', 14, footerY + 8);
+            doc.text(`Page ${pageNumber}`, pageWidth - 14, footerY + 8, { align: 'right' });
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, footerY + 12);
+        };
         
-        yPosition += 10;
-        
-        // Bid Summary Section
+        const addWatermark = () => {
+            doc.setFontSize(50);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(230, 230, 230); // Light gray
+            doc.text('FOR BIDDING PURPOSES', pageWidth / 2, pageHeight / 2, {
+                align: 'center',
+                angle: 45
+            });
+        };
+
+        let pageNumber = 1;
+        addHeader();
+        addFooter(pageNumber);
+        addWatermark();
+        let yPosition = 45;
+
+        // Section: Project Information
         doc.setFontSize(12);
         doc.setFont('helvetica', 'bold');
-        doc.text('BID SUMMARY', 20, yPosition);
-        yPosition += 10;
-        
-        // Summary box
-        doc.setDrawColor(0, 0, 0);
-        doc.setLineWidth(0.3);
-        doc.rect(20, yPosition - 5, 170, 15 + (results.services.length * 6));
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        
-        results.services.forEach((service: {
-            name: string;
-            reqSqM: number;
-            refPrice: number;
-            refSqM: number;
-            refHours: number;
-            refWorkers: number;
-            refDays: number;
-            unitPrice: number;
-            workerHoursPerSqM: number;
-            serviceCost: number;
-            totalWorkerHours: number;
-            serviceDays: number;
-        }) => {
-            doc.text(`${service.name}:`, 25, yPosition);
-            doc.text(`₱${service.serviceCost.toLocaleString()}`, 160, yPosition, { align: 'right' });
-            yPosition += 6;
-        });
-        
-        yPosition += 5;
-        doc.line(25, yPosition, 185, yPosition);
-        yPosition += 5;
-        
-        doc.setFont('helvetica', 'bold');
-        doc.text('TOTAL BID:', 25, yPosition);
-        doc.text(`₱${results.finalBid.toLocaleString()}`, 160, yPosition, { align: 'right' });
-        yPosition += 15;
-        
-        // Duration Section
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('SCHEDULE & TIMELINES', 20, yPosition);
-        yPosition += 10;
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        const totalDurationForPdf = results.totalDurationDays || results.scheduleDetails?.totalDays || 0;
-        doc.text(`Total Duration: ${Math.round(totalDurationForPdf)} days`, 20, yPosition);
-        yPosition += 6;
-        if (results.scheduleDetails?.startDate) {
-            doc.text(`Docking / Start: ${formatDisplayDate(results.scheduleDetails.startDate)}`, 20, yPosition);
-            yPosition += 6;
-        }
-        if (results.scheduleDetails?.endDate) {
-            doc.text(`Undocking / Completion: ${formatDisplayDate(results.scheduleDetails.endDate)}`, 20, yPosition);
-            yPosition += 6;
-        }
-        if (results.scheduleDetails?.penalties?.description) {
-            doc.text(`Penalties: ${results.scheduleDetails.penalties.description}`, 20, yPosition);
-            yPosition += 10;
-        } else {
-            yPosition += 6;
-        }
-
-        // Pricing breakdown in PDF
-        if (results.pricingBreakdown) {
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text('PRICING & FINANCIAL BID', 20, yPosition);
-            yPosition += 8;
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'bold');
-            doc.text('Service', 20, yPosition);
-            doc.text('Materials', 80, yPosition);
-            doc.text('Labor', 120, yPosition);
-            doc.text('Equipment', 150, yPosition);
-            doc.text('Total', 180, yPosition);
-            doc.line(20, yPosition + 2, 190, yPosition + 2);
-            yPosition += 8;
-            doc.setFont('helvetica', 'normal');
-            results.pricingBreakdown.perService.forEach(item => {
-                if (yPosition > 260) {
-                    doc.addPage();
-                    yPosition = 20;
-                }
-                doc.text(item.name, 20, yPosition);
-                doc.text(`₱${item.materialsCost.toLocaleString()}`, 80, yPosition);
-                doc.text(`₱${item.laborCost.toLocaleString()}`, 120, yPosition);
-                doc.text(`₱${item.equipmentCost.toLocaleString()}`, 150, yPosition);
-                doc.text(`₱${item.totalCost.toLocaleString()}`, 180, yPosition);
-                yPosition += 6;
-            });
-            yPosition += 8;
-        }
-
-        // Contract Conditions
-        if (results.contractConditions) {
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text('GENERAL & SPECIAL CONDITIONS', 20, yPosition);
-            yPosition += 8;
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            doc.text('Payment Terms:', 20, yPosition);
-            yPosition += 6;
-            results.contractConditions.paymentTerms.forEach(term => {
-                doc.text(`• ${term}`, 25, yPosition);
-                yPosition += 5;
-            });
-            yPosition += 4;
-            doc.text(`Insurance & Liability: ${results.contractConditions.insuranceAndLiability}`, 20, yPosition);
-            yPosition += 5;
-            doc.text(`Warranty: ${results.contractConditions.warranty}`, 20, yPosition);
-            yPosition += 5;
-            doc.text(`QA/QC: ${results.contractConditions.qualityAssurance}`, 20, yPosition);
-            yPosition += 5;
-            doc.text('HSE Highlights:', 20, yPosition);
-            yPosition += 5;
-            results.contractConditions.hse.forEach(item => {
-                doc.text(`• ${item}`, 25, yPosition);
-                yPosition += 5;
-            });
-            yPosition += 6;
-        }
-
-        // Taxes & Other Fees
-        if (results.taxesAndFees) {
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text('TAXES & OTHER PAYMENTS', 20, yPosition);
-            yPosition += 8;
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            doc.text(`VAT: ${results.taxesAndFees.vat.rate * 100}% - ${results.taxesAndFees.vat.note}`, 20, yPosition);
-            yPosition += 5;
-            doc.text(`Port Charges: ${results.taxesAndFees.portCharges}`, 20, yPosition);
-            yPosition += 5;
-            doc.text(`Import Duties: ${results.taxesAndFees.importDuties}`, 20, yPosition);
-            yPosition += 5;
-            doc.text('Other Payments:', 20, yPosition);
-            yPosition += 5;
-            results.taxesAndFees.otherPayments.forEach(item => {
-                doc.text(`• ${item.name}: ${item.detail}`, 25, yPosition);
-                yPosition += 5;
-            });
-            yPosition += 6;
-        }
-
-        if (results.additionalCosts) {
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text('OTHER REQUIRED COSTS', 20, yPosition);
-            yPosition += 8;
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            results.additionalCosts.items.forEach(item => {
-                doc.text(`${item.name}: ₱${item.amount.toLocaleString()}`, 20, yPosition);
-                yPosition += 5;
-            });
-            doc.text(`Total Upfront Costs: ₱${results.additionalCosts.total.toLocaleString()}`, 20, yPosition);
-            yPosition += 5;
-            doc.text(`Incidental: ${results.additionalCosts.incidentalNote}`, 20, yPosition);
-            yPosition += 6;
-        }
-
-        // Grand total summary
-        const totalUpfrontForPdf = results.additionalCosts?.total ?? 0;
-        const grandTotalForPdf = (results as CalculationResults).grandTotal ?? (results.finalBid + totalUpfrontForPdf);
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('FINANCIAL SUMMARY', 20, yPosition);
+        doc.setTextColor(marinexBlue);
+        doc.text('PROJECT & VESSEL INFORMATION', 14, yPosition);
+        yPosition += 4;
+        doc.setDrawColor(lightGray);
+        doc.setLineWidth(0.2);
+        doc.line(14, yPosition, pageWidth - 14, yPosition);
         yPosition += 8;
+
+        const projectInfo = [
+            { label: 'Vessel Name:', value: selectedRequest?.vessel?.name || 'N/A' },
+            { label: 'IMO Number:', value: selectedRequest?.vessel?.imo_number || 'N/A' },
+            { label: 'Ship Type:', value: selectedRequest?.vessel?.ship_type || 'N/A' },
+            { label: 'Flag:', value: selectedRequest?.vessel?.flag || 'N/A' },
+            { label: 'Requesting Company:', value: selectedRequest?.company_name || 'N/A' },
+            { label: 'Request Date:', value: selectedRequest?.request_date ? new Date(selectedRequest.request_date).toLocaleDateString() : 'N/A' },
+        ];
+
+        doc.setFontSize(10);
+        projectInfo.forEach(info => {
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(darkGray);
+            doc.text(info.label, 16, yPosition);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(midGray);
+            doc.text(info.value, 70, yPosition);
+            yPosition += 7;
+        });
+
+        const checkNewPage = (extraHeight = 0) => {
+            if (yPosition + extraHeight > pageHeight - 30) {
+                doc.addPage();
+                pageNumber++;
+                yPosition = 45;
+                addHeader();
+                addFooter(pageNumber);
+                addWatermark();
+                return true;
+            }
+            return false;
+        };
+        
+        yPosition += 5;
+        checkNewPage();
+
+        // Section: Scope of Work (Services)
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(marinexBlue);
+        doc.text('SCOPE OF WORK - REQUESTED SERVICES', 14, yPosition);
+        yPosition += 4;
+        doc.setDrawColor(lightGray);
+        doc.line(14, yPosition, pageWidth - 14, yPosition);
+        yPosition += 8;
+
+        const servicesTable = results.services.map(s => [s.name, `${s.reqSqM.toLocaleString()} m²`, `₱${s.unitPrice.toLocaleString()}`, `₱${s.serviceCost.toLocaleString()}`]);
+        
+        // Manual table drawing
+        const tableHeaders = ['Service Description', 'Area', 'Unit Price', 'Total Service Cost'];
+        const colWidths = [80, 30, 40, 40];
+        const startX = 14;
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setFillColor(lightGray);
+        doc.rect(startX, yPosition, colWidths.reduce((a,b) => a+b), 8, 'F');
+        let currentX = startX + 2;
+        tableHeaders.forEach((header, i) => {
+            doc.text(header, currentX, yPosition + 6);
+            currentX += colWidths[i];
+        });
+        yPosition += 8;
+
+        doc.setFont('helvetica', 'normal');
+        servicesTable.forEach((row, rowIndex) => {
+            checkNewPage(8);
+            if(rowIndex % 2 === 1) {
+                doc.setFillColor(248, 249, 250); // very light gray
+                doc.rect(startX, yPosition, colWidths.reduce((a,b) => a+b), 8, 'F');
+            }
+            currentX = startX + 2;
+            row.forEach((cell, i) => {
+                doc.text(cell, currentX, yPosition + 6);
+                currentX += colWidths[i];
+            });
+            yPosition += 8;
+        });
+
+        // Subtotal
+        yPosition += 2;
+        doc.setFont('helvetica', 'bold');
+        doc.text('Service Subtotal:', startX + colWidths[0] + colWidths[1] + colWidths[2] - 2, yPosition + 6, { align: 'right' });
+        doc.text(`₱${results.finalBid.toLocaleString()}`, startX + colWidths.reduce((a,b) => a+b) - 2, yPosition + 6, { align: 'right' });
+        yPosition += 10;
+        
+        checkNewPage(20);
+
+        // Section: Schedule & Timelines
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(marinexBlue);
+        doc.text('PROPOSED SCHEDULE', 14, yPosition);
+        yPosition += 4;
+        doc.setDrawColor(lightGray);
+        doc.line(14, yPosition, pageWidth - 14, yPosition);
+        yPosition += 8;
+
+        const scheduleInfo = [
+            { label: 'Estimated Project Duration:', value: `${Math.round(results.totalDurationDays || 0)} calendar days` },
+            { label: 'Proposed Start Date:', value: formatDisplayDate(results.scheduleDetails?.startDate) },
+            { label: 'Proposed Completion Date:', value: formatDisplayDate(results.scheduleDetails?.endDate) },
+            { label: 'Liquidated Damages:', value: results.scheduleDetails?.penalties?.description || 'N/A' }
+        ];
+
+        doc.setFontSize(10);
+        scheduleInfo.forEach(info => {
+            checkNewPage(7);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(darkGray);
+            doc.text(info.label, 16, yPosition);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(midGray);
+            doc.text(info.value, 70, yPosition);
+            yPosition += 7;
+        });
+        yPosition += 5;
+
+        checkNewPage(20);
+
+        // Section: Financial Summary
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(marinexBlue);
+        doc.text('FINANCIAL SUMMARY', 14, yPosition);
+        yPosition += 4;
+        doc.setDrawColor(lightGray);
+        doc.line(14, yPosition, pageWidth - 14, yPosition);
+        yPosition += 8;
+
+        doc.setFillColor(lightGray);
+        doc.rect(14, yPosition, pageWidth - 28, 30, 'F');
+        
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Service Subtotal: ₱${results.finalBid.toLocaleString()}`, 20, yPosition);
-        yPosition += 5;
-        doc.text(`Additional Upfront Costs: ₱${totalUpfrontForPdf.toLocaleString()}`, 20, yPosition);
-        yPosition += 5;
-        doc.text(`Grand Total: ₱${grandTotalForPdf.toLocaleString()}`, 20, yPosition);
-        yPosition += 10;
+        doc.setTextColor(darkGray);
+        doc.text('Service Subtotal:', 20, yPosition + 8);
+        doc.text(`₱${results.finalBid.toLocaleString()}`, pageWidth - 20, yPosition + 8, {align: 'right'});
 
-        // Required Documentation
-        if (results.requiredDocumentation && results.requiredDocumentation.length > 0) {
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text('REQUIRED DOCUMENTATION', 20, yPosition);
-            yPosition += 8;
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            results.requiredDocumentation.forEach(item => {
-                doc.text(`• ${item}`, 25, yPosition);
-                yPosition += 5;
-            });
-            yPosition += 6;
+        doc.text('Additional Upfront Costs (Tender Fee, Security, etc.):', 20, yPosition + 16);
+        doc.text(`₱${(results.additionalCosts?.total || 0).toLocaleString()}`, pageWidth - 20, yPosition + 16, {align: 'right'});
+
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(marinexBlue);
+        doc.text('Grand Total Bid Amount:', 20, yPosition + 25);
+        doc.text(`PHP ${results.grandTotal.toLocaleString()}`, pageWidth - 20, yPosition + 25, {align: 'right'});
+        yPosition += 35;
+        
+        checkNewPage(40);
+        
+        // Section: Terms and Conditions
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(marinexBlue);
+        doc.text('TERMS & CONDITIONS', 14, yPosition);
+        yPosition += 4;
+        doc.setDrawColor(lightGray);
+        doc.line(14, yPosition, pageWidth - 14, yPosition);
+        yPosition += 8;
+
+        doc.setFontSize(9);
+        doc.setTextColor(darkGray);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Payment Terms:', 16, yPosition);
+        yPosition += 5;
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(midGray);
+        results.contractConditions?.paymentTerms.forEach(term => {
+            checkNewPage(5);
+            doc.text(`• ${term}`, 20, yPosition);
+            yPosition += 5;
+        });
+
+        checkNewPage(15);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(darkGray);
+        doc.text('Warranty:', 16, yPosition);
+        yPosition += 5;
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(midGray);
+        const warrantyText = doc.splitTextToSize(results.contractConditions?.warranty || 'N/A', pageWidth - 36);
+        doc.text(warrantyText, 20, yPosition);
+        yPosition += warrantyText.length * 4;
+        
+        yPosition += 10;
+        checkNewPage(10);
+
+        // Signature Section
+        const signatureY = pageHeight - 60;
+        if (yPosition > signatureY - 10) {
+            checkNewPage(60);
+            yPosition = signatureY - 20;
+        } else {
+            yPosition = signatureY - 20;
         }
         
-        // Footer
-        yPosition = 280;
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'italic');
-        doc.text('This report was generated automatically by the Marinex system.', 20, yPosition);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPosition + 5);
+        doc.setDrawColor(darkGray);
+        doc.setLineWidth(0.3);
+        doc.line(14, yPosition, 80, yPosition);
+        doc.line(pageWidth - 80, yPosition, pageWidth - 14, yPosition);
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(darkGray);
+        doc.text('Authorized Shipyard Representative', 14, yPosition + 5);
+        doc.text('Shipowner Representative (for acceptance)', pageWidth - 14, yPosition + 5, { align: 'right' });
         
         try {
             // Create blob and upload to S3 via proxy
@@ -1477,14 +1489,14 @@ export default function BidDrydockPage() {
                   <h1 className="text-lg md:text-xl font-bold text-[#134686]">Browse and Bid Drydock Request</h1>
                   <p className="text-sm text-gray-500 mt-1">Browse and select drydock requests to view information and bid on.</p>
                 </div>
-                <Button 
-                  onClick={() => {
-                    setLoading(true);
-                    fetchDrydockRequests();
-                  }}
-                  variant="outline"
+                <Button
+                    onClick={() => {
+                        fetchBidHistory();
+                        setShowHistoryDialog(true);
+                    }}
+                    variant="outline"
                 >
-                  Refresh
+                    Show History
                 </Button>
               </div>
             </div>
@@ -2173,6 +2185,80 @@ export default function BidDrydockPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Bid History Dialog */}
+            <Dialog open={showHistoryDialog} onOpenChange={setShowHistoryDialog}>
+                <DialogContent className="!w-[900px] !max-w-[95vw] h-[80vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>My Bid History</DialogTitle>
+                        <DialogDescription>
+                            A record of all the bids you have submitted.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex-grow overflow-y-auto">
+                        {loadingHistory ? (
+                            <div className="flex items-center justify-center h-full">
+                                <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+                                <p className="ml-2 text-gray-600">Loading history...</p>
+                            </div>
+                        ) : bidHistory.length > 0 ? (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Vessel Name</TableHead>
+                                        <TableHead>Company</TableHead>
+                                        <TableHead>Bid Amount</TableHead>
+                                        <TableHead>Bid Date</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {bidHistory.map((bid, index) => (
+                                        <TableRow key={index}>
+                                            <TableCell>{bid.vesselName}</TableCell>
+                                            <TableCell>{bid.companyName}</TableCell>
+                                            <TableCell>₱{bid.bidAmount.toLocaleString()}</TableCell>
+                                            <TableCell>{new Date(bid.bidDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</TableCell>
+                                            <TableCell>
+                                                <Badge
+                                                    variant={
+                                                        bid.status === 'ACCEPTED' ? 'default' :
+                                                        bid.status === 'REJECTED' ? 'destructive' :
+                                                        'secondary'
+                                                    }
+                                                    className={
+                                                        bid.status === 'ACCEPTED' ? 'bg-green-500 text-white' : ''
+                                                    }
+                                                >
+                                                    {bid.status}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell>
+                                                {bid.certificateUrl ? (
+                                                    <a href={`/api/proxy-pdf?url=${encodeURIComponent(bid.certificateUrl)}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                                        View
+                                                    </a>
+                                                ) : (
+                                                    'N/A'
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        ) : (
+                            <div className="flex items-center justify-center h-full">
+                                <p className="text-gray-500">You have not submitted any bids yet.</p>
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowHistoryDialog(false)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
     </SidebarProvider>
   )
 }

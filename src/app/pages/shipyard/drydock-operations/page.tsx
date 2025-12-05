@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Wrench, Ship, Calendar, CheckCircle, Search } from "lucide-react"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
@@ -33,6 +33,7 @@ interface DrydockBooking {
   progress: number
   shipyardName: string
   totalBid: number
+  bookingDate: string;
   servicesOffered?: Record<string, unknown>
 }
 
@@ -139,6 +140,9 @@ export default function DrydockOperationsPage() {
   })
   const [vesselPlansFile, setVesselPlansFile] = useState<File | null>(null)
   const [issuingCertificates, setIssuingCertificates] = useState(false)
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [historyBookings, setHistoryBookings] = useState<DrydockBooking[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const calculateBookingProgress = async (bookingId: string): Promise<number> => {
     try {
@@ -247,6 +251,7 @@ export default function DrydockOperationsPage() {
               progress: progress, // Calculate from actual services
               shipyardName: booking.shipyardName,
               totalBid: booking.totalBid,
+              bookingDate: booking.bookingDate,
               servicesOffered: booking.servicesOffered
             }
           })
@@ -757,6 +762,40 @@ export default function DrydockOperationsPage() {
   }
 
   const shouldShowForm = existingProgress.length === 0 || showNewUpdateForm
+    
+  const handleShowHistory = () => {
+    setIsHistoryDialogOpen(true);
+    fetchHistory();
+  };
+
+  const fetchHistory = async () => {
+    if (!user?.id) return;
+    setLoadingHistory(true);
+    try {
+        const response = await fetch(`/api/shipyard/drydock-bookings?shipyardUserId=${user.id}&status=COMPLETED`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                setHistoryBookings(data.bookings);
+            }
+        } else {
+            toast({
+                title: "Error",
+                description: "Could not load history.",
+                variant: "destructive",
+            });
+        }
+    } catch (error) {
+        console.error("Error fetching history:", error);
+        toast({
+            title: "Error",
+            description: "An error occurred while fetching history.",
+            variant: "destructive",
+        });
+    } finally {
+        setLoadingHistory(false);
+    }
+  };
 
   return (
     <ProtectedRoute allowedRoles={['SHIPYARD']}>
@@ -812,6 +851,9 @@ export default function DrydockOperationsPage() {
                     className="pl-10"
                   />
                 </div>
+                 <Button variant="outline" onClick={handleShowHistory}>
+                    Show History
+                </Button>
               </div>
 
               {/* Vessel Cards */}
@@ -1306,6 +1348,42 @@ export default function DrydockOperationsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+           <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>Completed Drydock History</DialogTitle>
+                        <DialogDescription>
+                            This is a record of all previously completed drydock bookings for your shipyard.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {loadingHistory ? (
+                        <p>Loading history...</p>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Vessel</TableHead>
+                                    <TableHead>Company</TableHead>
+                                    <TableHead>Booking Date</TableHead>
+                                    <TableHead>Status</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {historyBookings.map(booking => (
+                                    <TableRow key={booking.id}>
+                                        <TableCell>{booking.vesselName}</TableCell>
+                                        <TableCell>{booking.companyName}</TableCell>
+                                        <TableCell>{new Date(booking.bookingDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</TableCell>
+                                        <TableCell>
+                                            <Badge>{booking.status}</Badge>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </DialogContent>
+            </Dialog>
         </SidebarInset>
       </SidebarProvider>
       <Toaster />

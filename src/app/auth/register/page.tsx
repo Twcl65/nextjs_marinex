@@ -169,7 +169,7 @@ export default function RegisterPage() {
 
   const getNextServiceName = (baseName: string) => {
     const normalizedBase = baseName.trim();
-    const regex = new RegExp(`^${normalizedBase}(?: (\\d{${SERVICE_NAME_SUFFIX_LENGTH}}))?$`, 'i');
+    const regex = new RegExp(`^${normalizedBase}(?: (\d{${SERVICE_NAME_SUFFIX_LENGTH}}))?$`, 'i');
     let maxSuffix = 0;
     let hasExactMatch = false;
 
@@ -644,8 +644,7 @@ export default function RegisterPage() {
               {[1, 2, 3].map((step) => (
                 <div key={step} className="flex items-center">
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      currentStep >= step
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${currentStep >= step
                         ? 'bg-[#134686] text-white'
                         : 'bg-gray-200 text-gray-600'
                     }`}
@@ -654,9 +653,7 @@ export default function RegisterPage() {
                   </div>
                   {step < 3 && (
                     <div
-                      className={`w-12 h-1 mx-1 ${
-                        currentStep > step ? 'bg-[#134686]' : 'bg-gray-200'
-                      }`}
+                      className={`w-12 h-1 mx-1 ${currentStep > step ? 'bg-[#134686]' : 'bg-gray-200'}`}
                     />
                   )}
                 </div>
@@ -775,113 +772,6 @@ export default function RegisterPage() {
                     <div className="space-y-2">
                       <Label className="text-[#134686] font-medium">Docking Services</Label>
                       {errors.dockingServices && (<p className="text-sm text-red-600">{errors.dockingServices}</p>)}
-                    </div>
-                    <div className="space-y-2 rounded-md border border-dashed border-[#13468640] bg-[#f7f9ff] p-3">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <Input
-                          type="text"
-                          placeholder="Search existing drydock services"
-                          value={serviceSearchTerm}
-                          onChange={(e) => setServiceSearchTerm(e.target.value)}
-                          className="border-[#13468633] focus:border-[#134686] focus:ring-[#134686]"
-                        />
-                        {serviceSearchTerm && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="text-[#134686] hover:bg-[#1346860d]"
-                            onClick={() => {
-                              setServiceSearchTerm('');
-                              setServiceSearchResults([]);
-                              setServiceSearchError('');
-                            }}
-                          >
-                            Clear
-                          </Button>
-                        )}
-                      </div>
-                      <p className="text-xs text-[#134686]">
-                        Start typing (min {MIN_SERVICE_SEARCH_CHARS} characters) to reuse services saved in your account.
-                      </p>
-                      {isServiceSearchLoading && (
-                        <p className="text-sm text-gray-600">Loading saved services...</p>
-                      )}
-                      {serviceSearchError && (
-                        <p className="text-sm text-red-600">{serviceSearchError}</p>
-                      )}
-                      {isServiceSearchActive && !isServiceSearchLoading && !serviceSearchError && (
-                        serviceSearchResults.length > 0 ? (
-                          <div className="max-h-56 overflow-y-auto divide-y divide-[#13468622] rounded-md border border-[#1346861f] bg-white">
-                            {serviceSearchResults.map((service) => (
-                              <div key={service.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                  <p className="text-sm font-semibold text-[#134686]">{service.name}</p>
-                                  <p className="text-xs text-gray-600">
-                                    Sqm: {service.squareMeters ?? '—'} • Hours: {service.hours ?? '—'} • Workers: {service.workers ?? '—'} • Days: {service.days ?? '—'} • Price: {service.price || '—'}
-                                  </p>
-                                </div>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="bg-[#134686] hover:bg-[#0f3a6e] text-white"
-                                  onClick={() => handleAddServiceFromSearch(service)}
-                                >
-                                  Use service
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-500">
-                            No saved services found for &ldquo;{serviceSearchTerm}&rdquo;.
-                          </p>
-                        )
-                      )}
-                    </div>
-                    <div className="rounded-md border border-[#13468633] bg-white p-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-[#134686]">All Available Services</p>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-[#134686] hover:bg-[#1346860d]"
-                          onClick={() => {
-                            setServiceSearchTerm('');
-                            setServiceSearchResults([]);
-                            setServiceSearchError('');
-                          }}
-                        >
-                          Clear search
-                        </Button>
-                      </div>
-                      {isTemplateLoading ? (
-                        <p className="text-sm text-gray-600">Loading available services...</p>
-                      ) : templateLoadError ? (
-                        <p className="text-sm text-red-600">{templateLoadError}</p>
-                      ) : availableTemplateServices.length === 0 ? (
-                        <p className="text-sm text-gray-500">No services found yet.</p>
-                      ) : (
-                        <div className="max-h-72 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {availableTemplateServices.map((service) => (
-                            <div key={`full-template-${service.id}`} className="rounded-md border border-[#13468622] p-3 space-y-1">
-                              <p className="text-sm font-semibold text-[#134686]">{service.name}</p>
-                              <p className="text-xs text-gray-600">
-                                Sqm: {service.squareMeters ?? '—'} • Hours: {service.hours ?? '—'} • Workers: {service.workers ?? '—'} • Days: {service.days ?? '—'} • Price: {service.price || '—'}
-                              </p>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="w-full border-[#13468633] text-[#134686] hover:bg-[#1346860d]"
-                                onClick={() => handleAddServiceFromSearch(service)}
-                              >
-                                Add to my services
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                     {formData.dockingServices.map((svc, idx) => (
                       <div key={idx} className="rounded-md border border-[#13468633] p-3 space-y-3">
@@ -1044,9 +934,7 @@ export default function RegisterPage() {
                     placeholder="john@example.com"
                     value={formData.email}
                     onChange={handleChange}
-                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
-                      errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-                    }`}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.email ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
                     required
                   />
                   {errors.email && (
@@ -1066,9 +954,7 @@ export default function RegisterPage() {
                     placeholder="Create a password"
                     value={formData.password}
                     onChange={handleChange}
-                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
-                      errors.password ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-                    }`}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.password ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
                     required
                   />
                   {errors.password && (
@@ -1088,9 +974,7 @@ export default function RegisterPage() {
                     placeholder="Confirm your password"
                     value={formData.confirmPassword}
                     onChange={handleChange}
-                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${
-                      errors.confirmPassword ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
-                    }`}
+                    className={`border-[#13468633] focus:border-[#134686] focus:ring-[#134686] ${errors.confirmPassword ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
                     required
                   />
                   {errors.confirmPassword && (

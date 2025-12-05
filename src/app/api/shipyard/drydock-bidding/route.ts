@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-// import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,9 +10,30 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
     }
 
-    // For now, return empty array since we don't have a bids table yet
-    // This will be implemented when we add the bidding system
-    return NextResponse.json({ bids: [] }, { status: 200 })
+    const bids = await prisma.drydockBid.findMany({
+      where: {
+        shipyardUserId: userId,
+      },
+      include: {
+        drydockRequest: {
+          include: {
+            vessel: true,
+            user: true
+          }
+        }
+      }
+    });
+
+    const bidHistory = bids.map(bid => ({
+      vesselName: bid.drydockRequest.vessel.vesselName,
+      companyName: bid.drydockRequest.user.fullName,
+      bidAmount: bid.totalBid,
+      bidDate: bid.submittedAt,
+      status: bid.status,
+      certificateUrl: bid.bidCertificateUrl
+    }))
+
+    return NextResponse.json({ bids: bidHistory }, { status: 200 })
   } catch (error) {
     console.error('Error fetching user bids:', error)
     return NextResponse.json(

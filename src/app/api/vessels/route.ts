@@ -201,6 +201,15 @@ export async function GET(request: NextRequest) {
             email: true,
             logoUrl: true
           }
+        },
+        drydockRequests: {
+          where: {
+            status: 'COMPLETED'
+          },
+          orderBy: {
+            updatedAt: 'desc'
+          },
+          take: 1
         }
       },
       orderBy: {

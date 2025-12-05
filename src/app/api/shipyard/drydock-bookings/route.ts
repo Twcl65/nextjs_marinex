@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import crypto from 'crypto'
 import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 
@@ -7,10 +8,13 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const shipyardUserId = searchParams.get('shipyardUserId')
+    const status = searchParams.get('status')
 
     if (!shipyardUserId) {
       return NextResponse.json({ error: 'Shipyard User ID is required' }, { status: 400 })
     }
+
+    const statusFilter = status ? Prisma.sql`AND db.status = ${status}` : Prisma.empty
 
     // Fetch bookings for the shipyard using raw SQL with enhanced information
     const bookings = await prisma.$queryRaw`
@@ -56,6 +60,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN drydock_bids db_bid ON db.drydockBidId = db_bid.id
       LEFT JOIN users u ON db.userId = u.id
       WHERE db.shipyardUserId = ${shipyardUserId}
+      ${statusFilter}
       ORDER BY db.createdAt DESC
     `
 
