@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import { AppHeader } from "@/components/AppHeader"
 import { MarinaSidebar } from "@/components/marina-sidebar"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -441,30 +442,16 @@ export default function ShipyardBiddingPage() {
     <SidebarProvider>
       <MarinaSidebar />
       <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 md:px-4">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/pages/marina">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Shipyard Bidding</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <NotificationDropdown />
-            <ProfileDropdown />
-          </div>
-        </header>
+
+<AppHeader 
+          breadcrumbs={[
+            { label: "Dashboard", href: "/pages/marina" },
+            { label: "Shipyard Bidding", isCurrentPage: true }
+          ]} 
+        />
                 <div className="p-5 pt-0 mt-0">
                     <div className="flex justify-between items-center">
-                        <div>
+                        <div className="pt-5">
                             <h1 className="text-lg md:text-xl font-bold text-[#134686]">Browse and Monitor Drydock Bidding</h1>
                             <p className="text-sm text-gray-500 mt-1">Browse drydock requests and view shipyard bidders for each request.</p>
                         </div>
@@ -794,7 +781,7 @@ export default function ShipyardBiddingPage() {
                                                                         console.error('Error accessing bid certificate:', error);
                                                                     }
                                                                 }}
-                                                                className="w-full text-xs cursor-pointer bg-[#134686] text-white hover:bg-[#0f3a6e]  hover:text-white text-white"
+                                                                className="w-full text-xs cursor-pointer bg-[#13468 hover:bg-[#0f3a6e]  hover:text-white text-white"
                                                             >
                                                                 Drydock Services Bid Quotation
                                                             </Button>

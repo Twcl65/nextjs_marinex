@@ -793,7 +793,7 @@ export default function ProfilePage() {
           
           <div className="flex flex-col justify-start min-h-[80vh] pl-0">
             <div className="w-full max-w-4xl space-y-8 pl-6 pb-0 mb-0">
-              <div>
+              <div className='pt-5'>
                 <h3 className="text-lg font-bold mb-2">Profile Settings</h3>
                 <p className="text-gray-500 text-sm mb-2 max-w-2xl">
                   Manage your personal information and account details here. Keeping your profile up to date helps us serve you better.

@@ -92,7 +92,7 @@ export default function ShipyardPage() {
               {/* Welcome Section */}
               <div className="flex items-center justify-between p-5 pb-5 pt-0">
             <div className="flex items-center gap-4">
-              <div>
+              <div className="pt-5">
                 <div className="text-md font-semibold">Welcome back, {user?.fullName || user?.shipyardName || 'Shipyard'}!</div>
                 <div className="text-sm text-muted-foreground">Here is your shipyard dashboard overview.</div>
               </div>

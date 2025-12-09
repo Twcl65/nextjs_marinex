@@ -164,10 +164,10 @@ const data = {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="bg-[#134686]">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuButton size="lg" asChild className="text-white hover:bg-blue-800">
               <a href="#">
                 <div className="bg-sidebar-primary text-white flex aspect-square size-8 items-center justify-center rounded-full">
                   <Ship className="size-4" />
@@ -180,7 +180,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <div className="px-2 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Main Menu</div>
+        <div className="px-2 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-wide text-white">Main Menu</div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

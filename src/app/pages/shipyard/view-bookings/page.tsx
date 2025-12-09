@@ -650,7 +650,7 @@ export default function ViewBookingsPage() {
             </div>
           ) : (
             <div className="px-6 py-0 pb-6 overflow-x-hidden">
-            <div className="mb-6">
+            <div className="mb-6 pt-5">
               <h1 className="text-lg md:text-lg font-bold text-[#134686]">Drydock Bookings Management</h1>
               <p className="text-sm text-muted-foreground mt-1">View and manage drydock bookings with vessel information and booking status.</p>
             </div>

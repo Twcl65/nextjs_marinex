@@ -133,7 +133,7 @@ export default function MarinaPage() {
           <div className="flex items-center justify-between p-5 pb-5 pt-0">
             <div className="flex items-center gap-4">
             
-              <div>
+              <div className="pt-5">
                 <div className="text-md font-semibold">Welcome back, {user?.fullName || 'Maritime Industry Authority'}!</div>
                 <div className="text-sm text-muted-foreground">Here is your marina dashboard overview.</div>
               </div>

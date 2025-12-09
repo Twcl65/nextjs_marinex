@@ -350,6 +350,7 @@ enum AccountStatus {
   ACTIVE
   SUSPENDED
   REJECTED
+  PENDING
 }
 
 enum VesselStatus {

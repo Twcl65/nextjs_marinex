@@ -346,7 +346,7 @@ export default function VesselRecertificationsPage() {
         <div className="p-5 pt-0">
           <div className="mb-4">
             
-            <div>
+            <div className="pt-5">
               <div className="text-xl font-bold text-[#134686] mb-1">Vessel Recertification</div>
               <div className="text-sm text-gray-500">Below are your vessel recertification requests and their status.</div>
             </div>

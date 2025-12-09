@@ -1,6 +1,7 @@
 "use client"
 
 import { MarinaSidebar } from "@/components/marina-sidebar"
+import { AppHeader } from "@/components/AppHeader"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import {
@@ -206,31 +207,17 @@ export default function AuthorityApprovalsPage() {
     <SidebarProvider>
       <MarinaSidebar />
       <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 md:px-4">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/pages/marina">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Authority Approvals</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <NotificationDropdown />
-            <ProfileDropdown />
-          </div>
-        </header>
+
+<AppHeader 
+          breadcrumbs={[
+            { label: "Dashboard", href: "/pages/marina" },
+            { label: "Authority Approvals", isCurrentPage: true }
+          ]} 
+        />
         
         <div className="p-5 pt-0 mt-0">
           <div className="flex justify-between items-center">
-            <div>
+            <div className="pt-5">
               <h1 className="text-xl md:text-xl font-bold text-[#134686]">Authority Approvals</h1>
               <p className="text-sm text-muted-foreground mt-1">Review and approve drydock authority requests from shipowners.</p>
             </div>

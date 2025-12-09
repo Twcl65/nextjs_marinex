@@ -294,7 +294,7 @@ export default function ManageDocumentsPage() {
           />
 
           <div className="px-6 py-0 pb-6 pt-0 mt-0">
-            <div className="mb-4">
+            <div className="mb-4 pt-5">
               <h1 className="text-lg md:text-xl font-bold text-[#134686]">Document Management</h1>
               <p className="text-sm text-muted-foreground mt-1">View and manage certificates you have issued to vessel owners.</p>
             </div>

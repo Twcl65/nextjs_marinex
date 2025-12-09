@@ -818,7 +818,7 @@ export default function DrydockOperationsPage() {
             </div>
           ) : (
             <div className="px-6 py-0 pb-6 pt-0 mt-0">
-              <div className="mb-5">
+              <div className="mb-5 pt-5">
                 <h1 className="text-xl font-bold text-[#134686] mb-2">Drydock Operations</h1>
                 <p className="text-sm text-muted-foreground">
                   Below are your booked vessels. Click a company to see more details about the drydock progress.

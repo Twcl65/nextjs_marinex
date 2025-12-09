@@ -512,7 +512,7 @@ export default function ManageDocumentsPage() {
             { label: "Manage Documents", isCurrentPage: true }
           ]} 
         />
-        <div className="pl-5">
+        <div className="pl-5 pt-5">
           <div>
             <h1 className="text-xl md:text-xl font-bold text-[#134686]">Manage Documents</h1>
             <p className="text-sm text-muted-foreground mt-1">View and manage documents sent to your vessels by shipowners and marinas.</p>

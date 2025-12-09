@@ -1,5 +1,6 @@
 "use client"
 
+import { AppHeader } from "@/components/AppHeader"
 import { MarinaSidebar } from "@/components/marina-sidebar"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -311,30 +312,16 @@ export default function MonitorCertificationsPage() {
     <SidebarProvider>
       <MarinaSidebar />
       <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 md:px-4">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/pages/marina">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Monitor Certifications</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <NotificationDropdown />
-            <ProfileDropdown />
-          </div>
-        </header>
+        
+<AppHeader 
+          breadcrumbs={[
+            { label: "Dashboard", href: "/pages/marina" },
+            { label: "Monitor Certifications", isCurrentPage: true }
+          ]} 
+        />
         
         <div className="p-5 pt-0 mt-0">
-          <div className="mb-6">
+          <div className="mb-6 pt-5">
           <h1 className="text-md md:text-xl font-bold text-[#134686]">Monitor Certifications</h1>
             <p className="text-sm text-gray-500 mt-1">Click the select vessel and fill in the drydock request details.</p>
           </div>

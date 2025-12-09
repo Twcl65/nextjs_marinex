@@ -487,7 +487,7 @@ export default function DrydockOperationPage() {
         />
         
         <div className="p-5 pt-0">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 pt-5">
             <div>
               <div className="text-xl font-bold text-[#134686] mb-1">Ongoing Drydock Operations</div>
               <div className="text-sm text-gray-500">Below are the booked shipyards. See the list of services below.</div>

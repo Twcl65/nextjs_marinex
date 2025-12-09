@@ -286,9 +286,9 @@ export function NotificationDropdown() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="relative h-8 w-8 p-0 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none cursor-pointer"
+          className="relative h-8 w-8 p-0 hover:bg-blue-800 focus:bg-blue-800 focus:outline-none cursor-pointer"
         >
-          <Bell className="h-5 w-5 text-gray-700" />
+          <Bell className="h-5 w-5 text-white" />
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center text-xs font-semibold text-white">
               {unreadCount > 99 ? '99+' : unreadCount}

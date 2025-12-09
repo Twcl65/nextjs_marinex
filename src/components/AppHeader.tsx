@@ -26,9 +26,9 @@ interface AppHeaderProps {
 
 export function AppHeader({ breadcrumbs }: AppHeaderProps) {
   return (
-    <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 pb-0 mb-0 md:px-4">
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+    <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 pb-0 mb-0 md:px-4 bg-[#134686]">
+      <SidebarTrigger className="-ml-1 text-white hover:bg-[#134686]" />
+      <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4 bg-gray-300" />
       
       <div className="flex-1">
         <Breadcrumb>
@@ -37,12 +37,12 @@ export function AppHeader({ breadcrumbs }: AppHeaderProps) {
               <React.Fragment key={index}>
                 <BreadcrumbItem>
                   {item.isCurrentPage ? (
-                    <BreadcrumbPage>{item.label}</BreadcrumbPage>
+                    <BreadcrumbPage className="text-gray-300">{item.label}</BreadcrumbPage>
                   ) : (
-                    <BreadcrumbLink href={item.href}>{item.label}</BreadcrumbLink>
+                    <BreadcrumbLink href={item.href} className="text-white">{item.label}</BreadcrumbLink>
                   )}
                 </BreadcrumbItem>
-                {index < breadcrumbs.length - 1 && <BreadcrumbSeparator />}
+                {index < breadcrumbs.length - 1 && <BreadcrumbSeparator className="text-white" />}
               </React.Fragment>
             ))}
           </BreadcrumbList>

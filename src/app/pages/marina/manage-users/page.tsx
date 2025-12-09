@@ -2,6 +2,7 @@
 
 import { MarinaSidebar } from "@/components/marina-sidebar"
 import { Separator } from "@/components/ui/separator"
+import { AppHeader } from "@/components/AppHeader"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { ProfileDropdown } from "@/components/ProfileDropdown"
 import { NotificationDropdown } from "@/components/NotificationDropdown"
@@ -42,7 +43,7 @@ interface User {
   id: string
   email: string
   role: 'SHIPOWNER' | 'SHIPYARD'
-  status: 'INACTIVE' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED'
+  status: 'INACTIVE' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED' | 'PENDING'
   fullName?: string
   shipyardName?: string
   contactNumber?: string
@@ -284,7 +285,7 @@ export default function ManageUsersPage() {
     return matchesSearch && matchesRole && matchesStatus
   }).sort((a, b) => {
     // Define status priority order: INACTIVE first, then ACTIVE, then REJECTED, then SUSPENDED
-    const statusOrder = { 'INACTIVE': 1, 'ACTIVE': 2, 'REJECTED': 3, 'SUSPENDED': 4 }
+    const statusOrder = { 'PENDING': 1, 'INACTIVE': 2, 'ACTIVE': 3, 'REJECTED': 4, 'SUSPENDED': 5 }
     const statusA = statusOrder[a.status as keyof typeof statusOrder] || 5
     const statusB = statusOrder[b.status as keyof typeof statusOrder] || 5
     
@@ -338,14 +339,14 @@ export default function ManageUsersPage() {
     setIsApproving(true)
 
     try {
-      // Update user status to ACTIVE in database
-      const response = await fetch('/api/users/update-status', {
+      // Update user status to ACTIVE and send email
+      const response = await fetch('/api/users/status', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: selectedUser.id,
+          id: selectedUser.id,
           status: 'ACTIVE'
         }),
       })
@@ -357,72 +358,6 @@ export default function ManageUsersPage() {
             ? { ...user, status: 'ACTIVE' }
             : user
         ))
-
-        // Send approval email notification
-        try {
-          const userName = selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName
-          const userType = selectedUser.role === 'SHIPOWNER' ? 'Shipowner' : 'Shipyard'
-          
-          const emailResponse = await fetch('/api/send-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: selectedUser.email, // Use actual user email
-              subject: 'Marinex Account Approval - Welcome to Marinex!',
-              message: `
-Dear ${userName},
-
-We are pleased to inform you that your account application for Marinex has been approved!
-
-Your ${userType} account is now active and you can access all the features and services available on our platform.
-
-Account Details:
-- Email: ${selectedUser.email}
-- Account Type: ${userType}
-- Status: Active
-
-You can now log in to your account and start using Marinex services.
-
-If you have any questions or need assistance, please don't hesitate to contact our support team.
-
-Welcome to Marinex!
-
-Best regards,
-Marinex Authority Team
-
-              `,
-              userType: userType,
-              userName: userName
-            }),
-          })
-
-          if (emailResponse.ok) {
-            console.log('Approval email sent successfully')
-            toast({
-              variant: "success",
-              title: "Email Sent",
-              description: `Approval email sent to ${selectedUser.email}`,
-            })
-          } else {
-            const errorData = await emailResponse.json()
-            console.error('Failed to send approval email:', errorData.error)
-            toast({
-              variant: "destructive",
-              title: "Email Failed",
-              description: `Could not send email to ${selectedUser.email}. User approved but email notification failed.`,
-            })
-          }
-        } catch (emailError) {
-          console.error('Error sending approval email:', emailError)
-          toast({
-            variant: "destructive",
-            title: "Email Error",
-            description: `Could not send email to ${selectedUser.email}. User approved but email notification failed.`,
-          })
-          // Don't fail the approval process if email fails
-        }
 
         // Show success toast
         toast({
@@ -465,15 +400,16 @@ Marinex Authority Team
     setIsRejecting(true)
 
     try {
-      // Update user status to REJECTED in database
-      const response = await fetch('/api/users/update-status', {
+      // Update user status to REJECTED and send email
+      const response = await fetch('/api/users/status', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: selectedUser.id,
-          status: 'REJECTED'
+          id: selectedUser.id,
+          status: 'REJECTED',
+          rejectionReason,
         }),
       })
 
@@ -484,67 +420,6 @@ Marinex Authority Team
             ? { ...user, status: 'REJECTED' }
             : user
         ))
-
-        // Send rejection email notification
-        try {
-          const userName = selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName
-          const userType = selectedUser.role === 'SHIPOWNER' ? 'Shipowner' : 'Shipyard'
-          
-          const emailResponse = await fetch('/api/send-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: selectedUser.email,
-              subject: 'Marinex Account Application - Additional Information Required',
-              message: `
-Dear ${userName},
-
-Thank you for your interest in joining Marinex. After reviewing your ${userType} account application, we need additional information or clarification before we can approve your account.
-
-Reason for rejection:
-${rejectionReason}
-
-Please review the above feedback and resubmit your application with the necessary corrections or additional documentation.
-
-If you have any questions or need assistance, please don't hesitate to contact our support team.
-
-We look forward to welcoming you to Marinex once the required information is provided.
-
-Best regards,
-Marinex Authority Team
-              `,
-              userType: userType,
-              userName: userName
-            }),
-          })
-
-          if (emailResponse.ok) {
-            console.log('Rejection email sent successfully')
-            toast({
-              variant: "destructive",
-              title: "Email Sent",
-              description: `Rejection email sent to ${selectedUser.email}`,
-            })
-          } else {
-            const errorData = await emailResponse.json()
-            console.error('Failed to send rejection email:', errorData.error)
-            toast({
-              variant: "destructive",
-              title: "Email Failed",
-              description: `Could not send email to ${selectedUser.email}. User rejected but email notification failed.`,
-            })
-          }
-        } catch (emailError) {
-          console.error('Error sending rejection email:', emailError)
-          toast({
-            variant: "destructive",
-            title: "Email Error",
-            description: `Could not send email to ${selectedUser.email}. User rejected but email notification failed.`,
-          })
-          // Don't fail the rejection process if email fails
-        }
 
         // Show success toast
         toast({
@@ -590,15 +465,16 @@ Marinex Authority Team
     setIsSuspending(true)
 
     try {
-      // Update user status to SUSPENDED in database
-      const response = await fetch('/api/users/update-status', {
+      // Update user status to SUSPENDED and send email
+      const response = await fetch('/api/users/status', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: selectedUser.id,
-          status: 'SUSPENDED'
+          id: selectedUser.id,
+          status: 'SUSPENDED',
+          rejectionReason: suspensionReason,
         }),
       })
 
@@ -609,67 +485,6 @@ Marinex Authority Team
             ? { ...user, status: 'SUSPENDED' }
             : user
         ))
-
-        // Send suspension email notification
-        try {
-          const userName = selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName
-          const userType = selectedUser.role === 'SHIPOWNER' ? 'Shipowner' : 'Shipyard'
-          
-          const emailResponse = await fetch('/api/send-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: selectedUser.email,
-              subject: 'Marinex Account Suspension Notice',
-              message: `
-Dear ${userName},
-
-We are writing to inform you that your ${userType} account on Marinex has been suspended.
-
-Reason for suspension:
-${suspensionReason}
-
-Your account access has been temporarily restricted. You will not be able to log in to your account until the suspension is lifted.
-
-If you believe this suspension is in error or if you have any questions, please contact our support team immediately.
-
-We appreciate your understanding and cooperation.
-
-Best regards,
-Marinex Authority Team
-              `,
-              userType: userType,
-              userName: userName
-            }),
-          })
-
-          if (emailResponse.ok) {
-            console.log('Suspension email sent successfully')
-            toast({
-              variant: "destructive",
-              title: "Email Sent",
-              description: `Suspension email sent to ${selectedUser.email}`,
-            })
-          } else {
-            const errorData = await emailResponse.json()
-            console.error('Failed to send suspension email:', errorData.error)
-            toast({
-              variant: "destructive",
-              title: "Email Failed",
-              description: `Could not send email to ${selectedUser.email}. User suspended but email notification failed.`,
-            })
-          }
-        } catch (emailError) {
-          console.error('Error sending suspension email:', emailError)
-          toast({
-            variant: "destructive",
-            title: "Email Error",
-            description: `Could not send email to ${selectedUser.email}. User suspended but email notification failed.`,
-          })
-          // Don't fail the suspension process if email fails
-        }
 
         // Show success toast
         toast({
@@ -713,14 +528,14 @@ Marinex Authority Team
     setIsUnsuspending(true)
 
     try {
-      // Update user status to ACTIVE in database
-      const response = await fetch('/api/users/update-status', {
+      // Update user status to ACTIVE and send email
+      const response = await fetch('/api/users/status', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: selectedUser.id,
+          id: selectedUser.id,
           status: 'ACTIVE'
         }),
       })
@@ -732,71 +547,6 @@ Marinex Authority Team
             ? { ...user, status: 'ACTIVE' }
             : user
         ))
-
-        // Send unsuspension email notification
-        try {
-          const userName = selectedUser.role === 'SHIPOWNER' ? selectedUser.fullName : selectedUser.shipyardName
-          const userType = selectedUser.role === 'SHIPOWNER' ? 'Shipowner' : 'Shipyard'
-          
-          const emailResponse = await fetch('/api/send-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: selectedUser.email,
-              subject: 'Marinex Account Reactivation Notice',
-              message: `
-Dear ${userName},
-
-We are pleased to inform you that your ${userType} account on Marinex has been reactivated.
-
-Your account suspension has been lifted and you now have full access to all Marinex services and features.
-
-Account Details:
-- Email: ${selectedUser.email}
-- Account Type: ${userType}
-- Status: Active
-
-You can now log in to your account and resume using Marinex services.
-
-If you have any questions or need assistance, please don't hesitate to contact our support team.
-
-Welcome back to Marinex!
-
-Best regards,
-Marinex Authority Team
-              `,
-              userType: userType,
-              userName: userName
-            }),
-          })
-
-          if (emailResponse.ok) {
-            console.log('Unsuspension email sent successfully')
-            toast({
-              variant: "success",
-              title: "Email Sent",
-              description: `Reactivation email sent to ${selectedUser.email}`,
-            })
-          } else {
-            const errorData = await emailResponse.json()
-            console.error('Failed to send unsuspension email:', errorData.error)
-            toast({
-              variant: "destructive",
-              title: "Email Failed",
-              description: `Could not send email to ${selectedUser.email}. User reactivated but email notification failed.`,
-            })
-          }
-        } catch (emailError) {
-          console.error('Error sending unsuspension email:', emailError)
-          toast({
-            variant: "destructive",
-            title: "Email Error",
-            description: `Could not send email to ${selectedUser.email}. User reactivated but email notification failed.`,
-          })
-          // Don't fail the unsuspension process if email fails
-        }
 
         // Show success toast
         toast({
@@ -832,8 +582,10 @@ Marinex Authority Team
     switch (status) {
       case 'ACTIVE':
         return 'bg-green-100 text-green-800'
-      case 'INACTIVE':
+      case 'PENDING':
         return 'bg-yellow-100 text-yellow-800'
+      case 'INACTIVE':
+        return 'bg-gray-100 text-gray-800'
       case 'SUSPENDED':
         return 'bg-red-100 text-red-800'
       case 'REJECTED':
@@ -850,30 +602,16 @@ Marinex Authority Team
   return (
     <SidebarProvider>
       <MarinaSidebar />
-      <SidebarInset>
-        <header className="flex h-12 md:h-14 shrink-0 items-center gap-1 px-3 md:px-4 pb-0 mb-0">
-          <SidebarTrigger className="ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <div className="flex-1">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/pages/marina">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Manage Users</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <NotificationDropdown />
-            <ProfileDropdown />
-          </div>
-        </header>
+  
+            <SidebarInset>
+              <AppHeader 
+                breadcrumbs={[
+                  { label: "Dashboard", href: "/pages/marina" },
+                  { label: "Manage Users", isCurrentPage: true }
+                ]} 
+              />
         <div className="px-6 py-0 pb-6">
-          <div className="mb-6">
+          <div className="mb-6 pt-5">
             <h1 className="text-lg md:text-xl font-bold text-[#134686]">User Management</h1>
             <p className="text-sm text-gray-500 mt-1">Create and manage user accounts with their profile information and roles.</p>
           </div>
@@ -911,6 +649,7 @@ Marinex Authority Team
                 </SelectTrigger>
                 <SelectContent className="bg-white border-gray-400 focus:border-gray-600 border-box">
                   <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="PENDING">Pending</SelectItem>
                   <SelectItem value="INACTIVE">Inactive</SelectItem>
                   <SelectItem value="ACTIVE">Active</SelectItem>
                   <SelectItem value="SUSPENDED">Suspended</SelectItem>
@@ -980,7 +719,8 @@ Marinex Authority Team
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-2">
                           <Badge className={getStatusColor(user.status)}>
-                            {user.status === 'INACTIVE' ? 'Inactive' : 
+                            {user.status === 'PENDING' ? 'Pending' :
+                             user.status === 'INACTIVE' ? 'Inactive' : 
                              user.status === 'ACTIVE' ? 'Active' :
                              user.status === 'SUSPENDED' ? 'Suspended' :
                              user.status === 'REJECTED' ? 'Rejected' : user.status}

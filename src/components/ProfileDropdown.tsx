@@ -126,7 +126,7 @@ export function ProfileDropdown() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="relative h-8 w-auto px-2 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+          className="relative h-8 w-auto px-2 hover:bg-blue-800 focus:bg-[#134686] focus:outline-none"
         >
           <div className="flex items-center space-x-2">
             {signedLogoUrl && !imageError && !loadingSignedUrl ? (
@@ -166,7 +166,7 @@ export function ProfileDropdown() {
                 {getInitials(getUserDisplayName())}
               </div>
             )}
-            <MoreVertical className="h-4 w-4 text-gray-500" />
+            <MoreVertical className="h-4 w-4 text-white" />
           </div>
         </Button>
       </DropdownMenuTrigger>

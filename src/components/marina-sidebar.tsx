@@ -66,11 +66,11 @@ export function MarinaSidebar({ ...props }: React.ComponentProps<typeof Sidebar>
   const { user } = useAuth()
 
   return (
-    <Sidebar {...props} className="bg-gray-50">
-      <SidebarHeader>
+    <Sidebar {...props}>
+      <SidebarHeader className="bg-[#134686]">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="h-14" asChild>
+            <SidebarMenuButton size="lg" className="h-13 text-white" asChild>
               <a href="/pages/marina">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#134686]">
                   <Ship className="h-5 w-5 text-white" />
@@ -85,9 +85,9 @@ export function MarinaSidebar({ ...props }: React.ComponentProps<typeof Sidebar>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <div className="px-2 pt-0 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Main Menu</div>
-      </SidebarHeader>
+    </SidebarHeader>
       <SidebarContent>
+        <div className="px-2 pt-5 pb-0 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Main Menu</div>
         <SidebarGroup>
           <SidebarMenu>
             {marinaNavData.navMain.map((item) => {

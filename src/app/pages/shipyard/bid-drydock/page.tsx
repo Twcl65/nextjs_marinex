@@ -1485,7 +1485,7 @@ export default function BidDrydockPage() {
           <>
             <div className="p-5 pt-0 mt-0">
               <div className="flex justify-between items-center">
-                <div>
+                <div className="pt-5">
                   <h1 className="text-lg md:text-xl font-bold text-[#134686]">Browse and Bid Drydock Request</h1>
                   <p className="text-sm text-gray-500 mt-1">Browse and select drydock requests to view information and bid on.</p>
                 </div>
