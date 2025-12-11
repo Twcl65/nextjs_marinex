@@ -34,7 +34,8 @@ interface DrydockBooking {
   shipyardName: string
   totalBid: number
   bookingDate: string;
-  servicesOffered?: Record<string, unknown>
+  servicesOffered?: Record<string, unknown>;
+  requestStatus?: string;
 }
 
 interface Service {
@@ -97,7 +98,7 @@ const CompanyAvatar = ({ logoUrl, name }: { logoUrl: string | null; name: string
 }
 
 export default function DrydockOperationsPage() {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const { toast } = useToast()
   const [bookings, setBookings] = useState<DrydockBooking[]>([])
   const [filteredBookings, setFilteredBookings] = useState<DrydockBooking[]>([])
@@ -143,6 +144,17 @@ export default function DrydockOperationsPage() {
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [historyBookings, setHistoryBookings] = useState<DrydockBooking[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [selectedBookingDetails, setSelectedBookingDetails] = useState<DrydockBooking | null>(null);
+
+  interface IssuedCertificate {
+    id: string;
+    certificateName: string;
+    certificateUrl: string | null;
+    issuedDate: string;
+  }
+  const [issuedCertificates, setIssuedCertificates] = useState<IssuedCertificate[]>([]);
+  const [loadingCertificates, setLoadingCertificates] = useState(false);
 
   const calculateBookingProgress = async (bookingId: string): Promise<number> => {
     try {
@@ -209,12 +221,8 @@ export default function DrydockOperationsPage() {
       const data = await response.json()
       
       if (data.success) {
-        // Filter for confirmed bookings and exclude completed requests
+        // Filter for confirmed bookings and include completed requests
         const confirmedBookingsPromises = data.bookings
-          .filter((booking: { status: string; requestStatus?: string }) => 
-            booking.status === 'CONFIRMED' && 
-            booking.requestStatus?.toUpperCase() !== 'COMPLETED'
-          )
           .map(async (booking: {
             id: string;
             status: string;
@@ -230,6 +238,7 @@ export default function DrydockOperationsPage() {
             shipyardName: string;
             totalBid: number;
             servicesOffered: Record<string, unknown>;
+            requestStatus?: string;
           }) => {
             // Calculate actual progress from services
             const progress = await calculateBookingProgress(booking.id)
@@ -252,7 +261,8 @@ export default function DrydockOperationsPage() {
               shipyardName: booking.shipyardName,
               totalBid: booking.totalBid,
               bookingDate: booking.bookingDate,
-              servicesOffered: booking.servicesOffered
+              servicesOffered: booking.servicesOffered,
+              requestStatus: booking.requestStatus
             }
           })
         
@@ -289,7 +299,18 @@ export default function DrydockOperationsPage() {
       filtered = filtered.filter(booking => booking.status.toLowerCase() === statusFilter.toLowerCase())
     }
 
-    setFilteredBookings(filtered)
+    // Sort to show CONFIRMED bookings first, then others
+    const sorted = [...filtered].sort((a, b) => {
+      if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') {
+        return -1
+      }
+      if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') {
+        return 1
+      }
+      return 0
+    })
+
+    setFilteredBookings(sorted)
   }, [bookings, searchTerm, statusFilter])
 
   const handleCardClick = async (booking: DrydockBooking) => {
@@ -797,6 +818,60 @@ export default function DrydockOperationsPage() {
     }
   };
 
+  const handleViewDetailsClick = async (booking: DrydockBooking) => {
+    setSelectedBookingDetails(booking);
+    setIsDetailsDialogOpen(true);
+    setLoadingCertificates(true);
+    try {
+        if (!token) {
+            toast({
+                title: "Authentication Error",
+                description: "You are not logged in.",
+                variant: "destructive",
+            });
+            setLoadingCertificates(false);
+            return;
+        }
+
+        // Use the correct shipyard-specific API route to fetch issued certificates
+        const response = await fetch(`/api/shipyard/issued-certificates?bookingId=${booking.id}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        const data = await response.json();
+
+        if (response.status === 401) {
+            throw new Error('Unauthorized: Invalid token or session expired.');
+        }
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to fetch certificates.');
+        }
+        
+        if (data.success) {
+            // The API returns 'data', not 'certificates'
+            setIssuedCertificates(data.data);
+        } else {
+            setIssuedCertificates([]);
+            toast({
+                title: "Error",
+                description: data.error || "Could not load certificates.",
+                variant: "destructive",
+            });
+        }
+    } catch (error) {
+        console.error("Error fetching certificates:", error);
+        setIssuedCertificates([]);
+        toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "An error occurred while fetching certificates.",
+            variant: "destructive",
+        });
+    } finally {
+        setLoadingCertificates(false);
+    }
+  };
+
   return (
     <ProtectedRoute allowedRoles={['SHIPYARD']}>
       <SidebarProvider>
@@ -864,61 +939,82 @@ export default function DrydockOperationsPage() {
                 <p className="text-gray-500">No confirmed bookings match your current filters.</p>
               </div>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {filteredBookings.map((booking) => (
-                  <Card key={booking.id} className="cursor-pointer shadow-sm rounded-md border border-gray-200" onClick={() => handleCardClick(booking)}>
-                    <CardContent className="px-4 py-1">
-                      {/* Company Info */}
-                      <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                          <CompanyAvatar logoUrl={booking.companyLogoUrl} name={booking.companyName} />
-                          <div>
-                            <h3 className="font-semibold text-gray-900 text-sm">{booking.companyName}</h3>
-                            <p className="text-xs text-gray-500">Shipowner</p>
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {filteredBookings.map((booking) => {
+                  const isCompleted = booking.status === 'COMPLETED';
+                  return (
+                    <div key={booking.id} className="relative">
+                      <Card 
+                        key={booking.id} 
+                        className={`shadow-sm rounded-md border border-gray-200 transition-all duration-300 ${isCompleted ? 'filter blur-sm' : 'cursor-pointer'}`}
+                        onClick={() => !isCompleted && handleCardClick(booking)}
+                      >
+                        <CardContent className="px-4 py-1">
+                          {/* Company Info */}
+                          <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                              <CompanyAvatar logoUrl={booking.companyLogoUrl} name={booking.companyName} />
+                              <div>
+                                <h3 className="font-semibold text-gray-900 text-sm">{booking.companyName}</h3>
+                                <p className="text-xs text-gray-500">Shipowner</p>
+                              </div>
+                            </div>
+                            <Badge className={`${getStatusColor(booking.status)} text-white text-xs px-2 py-1 rounded-full`}>
+                              {getStatusText(booking.status)}
+                            </Badge>
                           </div>
-                        </div>
-                        <Badge className={`${getStatusColor(booking.status)} text-white text-xs px-2 py-1 rounded-full`}>
-                          {getStatusText(booking.status)}
-                        </Badge>
-                      </div>
 
-                      {/* Vessel Details */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle className="h-3 w-3 text-green-500" />
-                        <span className="text-xs font-medium text-gray-700">
-                          {booking.vesselName} (IMO: {booking.imoNumber})
-                        </span>
-                      </div>
+                          {/* Vessel Details */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle className="h-3 w-3 text-green-500" />
+                            <span className="text-xs font-medium text-gray-700">
+                              {booking.vesselName} (IMO: {booking.imoNumber})
+                            </span>
+                          </div>
 
-                      {/* Dates */}
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3 text-gray-400" />
-                          <span className="text-xs text-gray-600">
-                            Start: {booking.startDate}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3 text-gray-400" />
-                          <span className="text-xs text-gray-600">
-                            End: {booking.endDate}
-                          </span>
-                        </div>
-                      </div>
+                          {/* Dates */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3 text-gray-400" />
+                              <span className="text-xs text-gray-600">
+                                Start: {booking.startDate}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3 text-gray-400" />
+                              <span className="text-xs text-gray-600">
+                                End: {booking.endDate}
+                              </span>
+                            </div>
+                          </div>
 
-                      {/* Progress */}
-                      <div className="flex items-center gap-2 mt-3 mb-0 pb-0">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2.5">
-                          <div 
-                            className="bg-[#134686] h-2.5 rounded-full transition-all duration-300" 
-                            style={{ width: `${booking.progress}%` }}
-                          ></div>
+                          {/* Progress */}
+                          <div className="flex items-center gap-2 mt-3 mb-0 pb-0">
+                            <div className="flex-1 bg-gray-200 rounded-full h-2.5">
+                              <div 
+                                className="bg-[#134686] h-2.5 rounded-full transition-all duration-300" 
+                                style={{ width: `${booking.progress}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-xs font-medium text-gray-700">{booking.progress}%</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      {isCompleted && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center rounded-md">
+                          <span className="bg-white/60 backdrop-blur-xs text-gray-800 font-bold text-sm px-4 py-2 rounded-lg shadow-md">COMPLETED</span>
+                          <Button 
+                              variant="secondary" 
+                              className="mt-4" 
+                              onClick={() => handleViewDetailsClick(booking)}
+                          >
+                              View Details
+                          </Button>
                         </div>
-                        <span className="text-xs font-medium text-gray-700">{booking.progress}%</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
             </div>
@@ -1349,7 +1445,7 @@ export default function DrydockOperationsPage() {
             </DialogContent>
           </Dialog>
            <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
-                <DialogContent className="max-w-4xl">
+                <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Completed Drydock History</DialogTitle>
                         <DialogDescription>
@@ -1384,6 +1480,94 @@ export default function DrydockOperationsPage() {
                     )}
                 </DialogContent>
             </Dialog>
+            <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                      <DialogTitle>Completed Drydock Details</DialogTitle>
+                      <DialogDescription>
+                          Showing details and issued certificates for the completed operation.
+                      </DialogDescription>
+                  </DialogHeader>
+                  {selectedBookingDetails && (
+                    <div className="mb-6 border-b pb-4">
+                        <h3 className="text-lg font-semibold mb-3 text-gray-800">Booking Summary</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <p className="text-gray-500">Company</p>
+                                <p className="font-medium text-gray-900">{selectedBookingDetails.companyName}</p>
+                            </div>
+                            <div>
+                                <p className="text-gray-500">Vessel</p>
+                                <p className="font-medium text-gray-900">{selectedBookingDetails.vesselName} (IMO: {selectedBookingDetails.imoNumber})</p>
+                            </div>
+                            <div>
+                                <p className="text-gray-500">Drydock Period</p>
+                                <p className="font-medium text-gray-900">{selectedBookingDetails.startDate} to {selectedBookingDetails.endDate}</p>
+                            </div>
+                            <div>
+                                <p className="text-gray-500">Final Bid</p>
+                                <p className="font-medium text-gray-900">${selectedBookingDetails.totalBid.toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                  )}
+                  {loadingCertificates ? (
+                      <div className="flex items-center justify-center py-8">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#134686]"></div>
+                          <span className="ml-2 text-sm text-gray-600">Loading certificates...</span>
+                      </div>
+                  ) : (
+                      <div className="space-y-4">
+                          <h3 className="text-lg font-semibold text-gray-800">Issued Certificates</h3>
+                          {(() => {
+                            const allowedCertificateNames = ["Vessel Plans", "Drydock Report", "Drydock Certificate"];
+                            const filteredCertificates = issuedCertificates.filter(cert => 
+                              allowedCertificateNames.includes(cert.certificateName) &&
+                              cert.drydockBookingId === selectedBookingDetails?.id
+                            );
+                            
+                            if (filteredCertificates.length > 0) {
+                              return (
+                                <Table>
+                                  <TableHeader>
+                                      <TableRow>
+                                          <TableHead>Certificate Name</TableHead>
+                                          <TableHead>Date Issued</TableHead>
+                                          <TableHead>Action</TableHead>
+                                      </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                      {filteredCertificates.map(cert => (
+                                          <TableRow key={cert.id}>
+                                              <TableCell>{cert.certificateName}</TableCell>
+                                              <TableCell>{new Date(cert.issuedDate).toLocaleDateString()}</TableCell>
+                                              <TableCell>
+                                                  <Button
+                                                      variant="outline"
+                                                      size="sm"
+                                                      onClick={() => {
+                                                        if (cert.certificateUrl) {
+                                                            window.open(`/api/view-certificate?url=${encodeURIComponent(cert.certificateUrl)}`, '_blank')
+                                                        }
+                                                      }}
+                                                      disabled={!cert.certificateUrl}
+                                                  >
+                                                      View
+                                                  </Button>
+                                              </TableCell>
+                                          </TableRow>
+                                      ))}
+                                  </TableBody>
+                                </Table>
+                              );
+                            } else {
+                              return <p className="text-sm text-gray-500">No vessel plans, drydock reports, or drydock certificates found for this booking.</p>;
+                            }
+                          })()}
+                      </div>
+                  )}
+              </DialogContent>
+          </Dialog>
         </SidebarInset>
       </SidebarProvider>
       <Toaster />

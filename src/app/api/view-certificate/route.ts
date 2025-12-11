@@ -79,9 +79,7 @@ export async function GET(request: NextRequest) {
 
     const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }) // 1 hour expiry
 
-    return NextResponse.json({
-      signedUrl: signedUrl
-    })
+    return NextResponse.redirect(signedUrl)
 
   } catch (error) {
     console.error('Error generating signed URL:', error)
