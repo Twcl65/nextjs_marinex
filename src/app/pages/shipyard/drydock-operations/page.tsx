@@ -149,9 +149,14 @@ export default function DrydockOperationsPage() {
 
   interface IssuedCertificate {
     id: string;
+    drydockBookingId: string;
+    vesselId: string;
     certificateName: string;
+    certificateType: string;
     certificateUrl: string | null;
     issuedDate: string;
+    createdAt: string;
+    updatedAt: string;
   }
   const [issuedCertificates, setIssuedCertificates] = useState<IssuedCertificate[]>([]);
   const [loadingCertificates, setLoadingCertificates] = useState(false);
