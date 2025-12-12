@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import jsPDF from 'jspdf'
+import fs from 'fs'
+import path from 'path'
 import crypto from 'crypto'
 import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 import { jwtVerify } from 'jose'
@@ -204,13 +206,10 @@ export async function POST(request: NextRequest) {
           console.log(`[Recertification] Certificate uploaded without ACL (using bucket policy)`)
         }
 
-        // Generate a signed URL for the certificate (valid for 7 days - maximum allowed)
-        const signedUrl = await getSignedUrl(s3Client, new GetObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET!,
-          Key: `certificates/${fileName}`,
-        }), { expiresIn: 604800 }) // 7 days in seconds (604800 = 7 * 24 * 60 * 60)
-
-        console.log('Certificate uploaded to:', signedUrl)
+        // Base S3 URL (store unsiged; viewer will request signed URL on demand)
+        const region = process.env.AWS_REGION || 'ap-southeast-2'
+        const baseUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${region}.amazonaws.com/certificates/${fileName}`
+        console.log('Certificate uploaded to (base URL):', baseUrl)
 
         // Calculate new expiry date (5 years from now)
         const newExpiryDate = new Date()
@@ -221,7 +220,7 @@ export async function POST(request: NextRequest) {
           where: { id: recertificateId },
           data: {
             status: 'COMPLETED',
-            vesselCertificateFile: signedUrl,
+            vesselCertificateFile: baseUrl,
             updatedAt: new Date()
           }
         })
@@ -482,109 +481,207 @@ interface RecertificationData {
 }
 
 async function generateVesselCertificate(recertification: RecertificationData): Promise<Buffer> {
-  try {
-    const pdfDoc = await PDFDocument.create()
-    const page = pdfDoc.addPage([595, 842]) // A4 size
-    const { height } = page.getSize()
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
 
-    // Load fonts
-    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const margin = 55
+  const lineGap = 20
 
-    // Title
-    page.drawText('VESSEL RECERTIFICATION CERTIFICATE', {
-      x: 50,
-      y: height - 100,
-      size: 20,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-    })
-
-    // Certificate details
-    const details = [
-      { label: 'Certificate Number:', value: `VRC-${recertification.id.slice(-8).toUpperCase()}` },
-      { label: 'Vessel Name:', value: recertification.vesselName || 'N/A' },
-      { label: 'IMO Number:', value: recertification.vesselImoNumber || 'N/A' },
-      { label: 'Company:', value: recertification.companyName || 'N/A' },
-      { label: 'Ship Type:', value: recertification.vessel?.shipType || 'N/A' },
-      { label: 'Flag:', value: recertification.vessel?.flag || 'N/A' },
-      { label: 'Year of Build:', value: recertification.vessel?.yearOfBuild?.toString() || 'N/A' },
-      { label: 'Length Overall:', value: recertification.vessel?.lengthOverall ? `${recertification.vessel.lengthOverall}m` : 'N/A' },
-      { label: 'Gross Tonnage:', value: recertification.vessel?.grossTonnage?.toString() || 'N/A' },
-      { label: 'Issue Date:', value: new Date().toLocaleDateString() },
-      { label: 'Expiry Date:', value: new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toLocaleDateString() }
-    ]
-
-    let yPosition = height - 150
-    details.forEach(detail => {
-      page.drawText(detail.label, {
-        x: 50,
-        y: yPosition,
-        size: 12,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-      })
-      
-      page.drawText(detail.value, {
-        x: 200,
-        y: yPosition,
-        size: 12,
-        font: helvetica,
-        color: rgb(0, 0, 0)
-      })
-      
-      yPosition -= 25
-    })
-
-    // Signature section
-    yPosition -= 50
-    page.drawText('Authorized Signature:', {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-    })
-
-    page.drawText('Maritime Industry Authority', {
-      x: 200,
-      y: yPosition,
-      size: 12,
-      font: helvetica,
-      color: rgb(0, 0, 0)
-    })
-
-    yPosition -= 30
-    page.drawText('Date:', {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-    })
-
-    page.drawText(new Date().toLocaleDateString(), {
-      x: 200,
-      y: yPosition,
-      size: 12,
-      font: helvetica,
-      color: rgb(0, 0, 0)
-    })
-
-    // Footer
-    page.drawText('This certificate is valid for five years from the issue date.', {
-      x: 50,
-      y: 100,
-      size: 10,
-      font: helvetica,
-      color: rgb(0.5, 0.5, 0.5)
-    })
-
-    const pdfBytes = await pdfDoc.save()
-    return Buffer.from(pdfBytes)
-  } catch (error) {
-    console.error('Error generating PDF certificate:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    throw new Error('Failed to generate certificate PDF: ' + errorMessage)
+  const loadAssetImage = (fileName: string): string | null => {
+    try {
+      const imgPath = path.join(process.cwd(), 'public', 'assets', fileName)
+      if (!fs.existsSync(imgPath)) return null
+      const data = fs.readFileSync(imgPath)
+      return `data:image/png;base64,${data.toString('base64')}`
+    } catch (err) {
+      console.error('Error loading image asset', fileName, err)
+      return null
+    }
   }
+
+  const safe = (value: string | number | undefined | null, fallback: string) =>
+    value ? String(value) : fallback
+
+  const issueDate = new Date()
+  const expiryDate = new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000) // 5 years from now
+  const certificateNumber = `VRC-${recertification.id.slice(-8).toUpperCase()}`
+  const distinctiveNumber = 'THS'
+  const portOfRegistry = String(Math.floor(10 + Math.random() * 90))
+  const companyIdNumber = `BRN-${recertification.id.slice(-6).toUpperCase()}`
+
+  // Header - Logos (no border)
+  const leftLogo = loadAssetImage('marinex_logo.png')
+  if (leftLogo) {
+    doc.addImage(leftLogo, 'PNG', margin + 8, margin + 8, 80, 60)
+  }
+  const rightLogo = loadAssetImage('marinalogo.png')
+  if (rightLogo) {
+    doc.addImage(rightLogo, 'PNG', pageWidth - margin - 88, margin + 8, 80, 60)
+  }
+
+  // Header text
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('Republic of the Philippines', pageWidth / 2, margin + 18, { align: 'center' })
+  doc.text('Department of Transportation', pageWidth / 2, margin + 32, { align: 'center' })
+  doc.setFontSize(14)
+  doc.text('MARITIME INDUSTRY AUTHORITY', pageWidth / 2, margin + 50, { align: 'center' })
+  doc.setFontSize(12)
+  doc.text('REGION X', pageWidth / 2, margin + 68, { align: 'center' })
+
+  // Sub-header text
+  let cursorY = margin + 95
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Issued under the provisions of the Maritime Industry Authority', pageWidth / 2, cursorY, { align: 'center' })
+  cursorY += lineGap * 0.8
+  doc.text('Under the authority of the Government of the', pageWidth / 2, cursorY, { align: 'center' })
+  cursorY += lineGap * 0.8
+  doc.setFont('helvetica', 'bold')
+  doc.text('REPUBLIC OF THE PHILIPPINES', pageWidth / 2, cursorY, { align: 'center' })
+
+  // Certificate title
+  cursorY += lineGap * 1.5
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'bold')
+  doc.text('VESSEL CERTIFICATE', pageWidth / 2, cursorY, { align: 'center' })
+
+  // Tables section
+  cursorY += lineGap * 2
+
+  // Vessel Details Table
+  const tableStartX = margin
+  const tableWidth = pageWidth - margin * 2
+  const colWidths = [140, 140, 120, 120]
+  const rowHeight = 25
+
+  // Table headers
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  const headers = ['Name of Ship', 'Distinctive Number of Letters', 'Port of Registry', 'IMO Number']
+  let xPos = tableStartX
+  headers.forEach((header, idx) => {
+    doc.setFillColor(240, 240, 240)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'S')
+    doc.text(header, xPos + 5, cursorY + 15, { maxWidth: colWidths[idx] - 10 })
+    xPos += colWidths[idx]
+  })
+
+  // Table data row
+  cursorY += rowHeight
+  xPos = tableStartX
+  const vesselData = [
+    safe(recertification.vesselName, ''),
+    distinctiveNumber,
+    portOfRegistry,
+    safe(recertification.vesselImoNumber, '')
+  ]
+  vesselData.forEach((data, idx) => {
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'S')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(data, xPos + 5, cursorY + 15, { maxWidth: colWidths[idx] - 10 })
+    xPos += colWidths[idx]
+  })
+
+  // Company Details Table
+  cursorY += rowHeight + lineGap
+  const companyColWidths = [200, 150, 150]
+  const companyHeaders = ['Name and Address of the Company', 'Company Identification Number', 'Type of Ship *']
+  
+  xPos = tableStartX
+  companyHeaders.forEach((header, idx) => {
+    doc.setFillColor(240, 240, 240)
+    doc.rect(xPos, cursorY, companyColWidths[idx], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, companyColWidths[idx], rowHeight, 'S')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text(header, xPos + 5, cursorY + 15, { maxWidth: companyColWidths[idx] - 10 })
+    xPos += companyColWidths[idx]
+  })
+
+  // Company data row
+  cursorY += rowHeight
+  xPos = tableStartX
+  const companyData = [
+    safe(recertification.companyName, ''),
+    companyIdNumber,
+    safe(recertification.vessel?.shipType, '')
+  ]
+  companyData.forEach((data, idx) => {
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xPos, cursorY, companyColWidths[idx], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, companyColWidths[idx], rowHeight, 'S')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(data, xPos + 5, cursorY + 15, { maxWidth: companyColWidths[idx] - 10 })
+    xPos += companyColWidths[idx]
+  })
+
+  // Certification statement
+  cursorY += rowHeight + lineGap * 1.5
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.text('THIS IS TO CERTIFY THAT:', margin, cursorY)
+  
+  cursorY += lineGap * 1.5
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('1. The security system and any associated security equipment of the ship has been verified in accordance with memorandum circular 203 of the Maritime Industry Authority Region X.', margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.5
+  })
+  
+  cursorY += lineGap * 2.5
+  doc.text('2. That the ship is provided with an approved Dry-Docking Report and Vessel Plan.', margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.5
+  })
+
+  // Validity and issuance details
+  cursorY += lineGap * 2.5
+  doc.setFontSize(10)
+  doc.text(`Date of initial renewal verification on which this certificate is based ${issueDate.toISOString().split('T')[0]}.`, margin, cursorY)
+  
+  cursorY += lineGap * 1.2
+  doc.text(`This certificate is valid until ${expiryDate.toISOString().split('T')[0]}, subject to verifications and renewal in accordance with the memorandum circular 2023 of the Maritime Industry Authority.`, margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.5
+  })
+
+  cursorY += lineGap * 1.5
+  const day = issueDate.getDate()
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const month = monthNames[issueDate.getMonth()]
+  const year = issueDate.getFullYear()
+  doc.text(`Issued at MARINA Region - X, Cagayan de Oro City, Philippines, on the ${day} ${month} ${year}.`, margin, cursorY)
+
+  // Footer with signature on right
+  cursorY = 650
+  const signatureImg = loadAssetImage('signature.png')
+  if (signatureImg) {
+    // Signature image on the right
+    doc.addImage(signatureImg, 'PNG', pageWidth - margin - 150, cursorY - 10, 120, 50)
+  }
+
+  // Signature block text on right
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('DONNA DEL P. KUIZON', pageWidth - margin - 150, cursorY + 45)
+  doc.text('Administrative Officer IV', pageWidth - margin - 150, cursorY + 45 + lineGap)
+
+  // Convert to buffer
+  const pdfOutput = doc.output('arraybuffer')
+  return Buffer.from(pdfOutput)
 }

@@ -781,7 +781,7 @@ export default function ShipyardBiddingPage() {
                                                                         console.error('Error accessing bid certificate:', error);
                                                                     }
                                                                 }}
-                                                                className="w-full text-xs cursor-pointer bg-[#13468 hover:bg-[#0f3a6e]  hover:text-white text-white"
+                                                                className="w-full bg-blue-800 hover:bg-blue-900 text-white text-xs cursor-pointer"
                                                             >
                                                                 Drydock Services Bid Quotation
                                                             </Button>

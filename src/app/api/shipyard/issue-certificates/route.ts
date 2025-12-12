@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 import jsPDF from 'jspdf'
+import fs from 'fs'
+import path from 'path'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 
 const s3Client = new S3Client({
@@ -12,111 +14,389 @@ const s3Client = new S3Client({
   },
 })
 
-// Helper function to generate certificate PDF
+// Helper function to load image asset
+const loadAssetImage = (fileName: string): string | null => {
+  try {
+    const imgPath = path.join(process.cwd(), 'public', 'assets', fileName)
+    if (!fs.existsSync(imgPath)) return null
+    const data = fs.readFileSync(imgPath)
+    return `data:image/png;base64,${data.toString('base64')}`
+  } catch (err) {
+    console.error('Error loading image asset', fileName, err)
+    return null
+  }
+}
+
+// Helper function to generate Drydock Report PDF
+async function generateDrydockReportPDF(
+  vesselName: string,
+  imoNumber: string,
+  companyName: string,
+  issuedDate: Date,
+  shipyardName: string,
+  vesselData?: {
+    shipType?: string | null
+    flag?: string | null
+    distinctiveNumber?: string | null
+  },
+  services?: Array<{ serviceName: string; progress?: number | null; startDate?: Date; endDate?: Date; area?: number | null }>
+): Promise<Buffer> {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 55
+  const lineGap = 20
+
+  // Load PICMW logo
+  const logo = loadAssetImage('picmwlogo.png')
+  if (logo) {
+    doc.addImage(logo, 'PNG', pageWidth / 2 - 40, margin, 80, 60)
+  }
+
+  // Company name and address
+  let cursorY = margin + 70
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.text(shipyardName || 'Philippine Iron Construction & Marine Works, Inc.', pageWidth / 2, cursorY, { align: 'center' })
+  cursorY += lineGap * 0.8
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('Lower Jasaan, Jasaan Misamis Oriental', pageWidth / 2, cursorY, { align: 'center' })
+
+  // Main title
+  cursorY += lineGap * 1.5
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text('DRY DOCK REPORT', pageWidth / 2, cursorY, { align: 'center' })
+
+  // Derive dates for repair day and planned dock days
+  const formatDate = (d?: Date) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+  const serviceStarts = (services || []).map(s => (s as any).startDate ? new Date((s as any).startDate).getTime() : undefined).filter(Boolean) as number[]
+  const serviceEnds = (services || []).map(s => (s as any).endDate ? new Date((s as any).endDate).getTime() : undefined).filter(Boolean) as number[]
+  const startMs = serviceStarts.length ? Math.min(...serviceStarts) : issuedDate.getTime()
+  const endMs = serviceEnds.length ? Math.max(...serviceEnds) : issuedDate.getTime()
+  const startDateTxt = formatDate(new Date(startMs))
+  const endDateTxt = formatDate(new Date(endMs))
+  const plannedDays = Math.max(1, Math.ceil((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1)
+
+  // Information table (label/value)
+  cursorY += lineGap * 2
+  const tableStartX = margin
+  const colWidths = [170, 170]
+  const rowHeight = 22
+
+  const infoRows = [
+    { label: 'Vessel Name', value: vesselName },
+    { label: 'Date', value: issuedDate.toLocaleDateString() },
+    { label: 'Time', value: issuedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+    { label: 'Repair Day', value: `${startDateTxt} - ${endDateTxt}` },
+    { label: 'Planned Dock Days', value: `${plannedDays} days` },
+    { label: 'Report Ref.', value: `RPT-${crypto.randomUUID().slice(-6).toUpperCase()}` },
+    { label: 'Dockyard', value: shipyardName || 'PICMW Shipyard' },
+  ]
+
+  let xPos = tableStartX
+  infoRows.forEach((row) => {
+    doc.setFillColor(240, 240, 240)
+    doc.rect(xPos, cursorY, colWidths[0], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, colWidths[0], rowHeight, 'S')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(row.label, xPos + 5, cursorY + 12, { maxWidth: colWidths[0] - 10 })
+    
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xPos + colWidths[0], cursorY, colWidths[1], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos + colWidths[0], cursorY, colWidths[1], rowHeight, 'S')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(row.value, xPos + colWidths[0] + 5, cursorY + 12, { maxWidth: colWidths[1] - 10 })
+    
+    cursorY += rowHeight
+  })
+
+  // Notes section
+  cursorY += rowHeight * 2
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(11)
+  doc.text('Works In Progress or Completed', margin, cursorY)
+  cursorY += lineGap * 0.8
+  doc.text('Note:', margin, cursorY)
+  cursorY += lineGap * 1.2
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(10)
+  doc.text('* Comment on bad weather period (e.g., number of rain hours) which affects the repair schedule.', margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.4
+  })
+  cursorY += lineGap * 1.4
+  doc.text('** Comment whether or not repair/time taken are on schedule. This is to be done every day for the first half duration of dry docking. In the second half, daily comment is necessary.', margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.4
+  })
+
+  // Build services paragraph
+  const describeService = (svc: { serviceName: string; progress?: number | null; startDate?: Date; endDate?: Date; area?: number | null }) => {
+    const start = formatDate((svc as any).startDate)
+    const end = formatDate((svc as any).endDate)
+    const pct = svc.progress ?? 100
+    const totalMeters = svc.area ?? 20
+    const halfMeters = totalMeters / 2
+    return `${svc.serviceName}: Work kicked off on ${start}. Completed about ${halfMeters} meters by day 3; remaining ${halfMeters} meters continued through ${end}. Current progress is ${pct}%, performed under sunny conditions.`
+  }
+
+  const generalProgressText =
+    'Works kicked off with onboard works planning meeting at 9am between Owner’s Project Team (OPT): Yard Project Team, OPT-UFF Pum, OPT-ClassNK, OPT-OH, Chogoku and Master/CE/CO. In general the purpose is to conform, program and consolidate all repair, inspection and survey works.'
+
+  const serviceRows = (services || []).map((svc) => ({
+    label: svc.serviceName || 'Service',
+    text: describeService(svc),
+  }))
+
+  // Progress details table (Weather, General Progress, then each service)
+  cursorY += lineGap * 2
+  const progressColWidths = [140, pageWidth - margin * 2 - 140]
+  const bottomLimit = pageHeight - margin - 120
+  const baseRows = [
+    { label: 'Weather*', text: 'Sunny and calm with temperature around 16–20°C.' },
+    { label: 'General Progress', text: generalProgressText },
+  ]
+  const progressRows = [...baseRows, ...serviceRows]
+  
+  xPos = tableStartX
+  progressRows.forEach((row) => {
+    // compute height based on text length
+    const lines = doc.splitTextToSize(row.text, progressColWidths[1] - 10)
+    const rowHeight = Math.max(32, lines.length * 12 + 10)
+
+    // pagination: add a new page if not enough space
+    if (cursorY + rowHeight > bottomLimit) {
+      doc.addPage()
+      cursorY = margin
+    }
+
+    doc.setFillColor(240, 240, 240)
+    doc.rect(xPos, cursorY, progressColWidths[0], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, progressColWidths[0], rowHeight, 'S')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(row.label, xPos + 5, cursorY + 14, { maxWidth: progressColWidths[0] - 10 })
+    
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xPos + progressColWidths[0], cursorY, progressColWidths[1], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos + progressColWidths[0], cursorY, progressColWidths[1], rowHeight, 'S')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(lines, xPos + progressColWidths[0] + 5, cursorY + 14, { lineHeightFactor: 1.4 })
+    
+    cursorY += rowHeight
+  })
+
+  // Signature block
+  cursorY = pageHeight - 80
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('Verified by:', pageWidth - margin - 150, cursorY)
+  
+  const signatureImg = loadAssetImage('signature.png')
+  if (signatureImg) {
+    doc.addImage(signatureImg, 'PNG', pageWidth - margin - 150, cursorY + 5, 100, 40)
+  }
+  
+  cursorY += 50
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('Julius Anthony Siarez', pageWidth - margin - 150, cursorY)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text('Project Manager', pageWidth - margin - 150, cursorY + lineGap * 0.8)
+
+  const pdfOutput = doc.output('arraybuffer')
+  return Buffer.from(pdfOutput)
+}
+
+// Helper function to generate Drydock Certificate PDF
+async function generateDrydockCertificatePDF(
+  vesselName: string,
+  imoNumber: string,
+  companyName: string,
+  issuedDate: Date,
+  shipyardName: string,
+  vesselData?: {
+    shipType?: string | null
+    flag?: string | null
+    distinctiveNumber?: string | null
+  }
+): Promise<Buffer> {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 55
+  const lineGap = 20
+
+  // Load PICMW logo
+  const logo = loadAssetImage('picmwlogo.png')
+  if (logo) {
+    doc.addImage(logo, 'PNG', pageWidth / 2 - 40, margin, 80, 60)
+  }
+
+  // Company name and address
+  let cursorY = margin + 70
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.text(shipyardName || 'Philippine Iron Construction & Marine Works, Inc.', pageWidth / 2, cursorY, { align: 'center' })
+  cursorY += lineGap * 0.8
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('Lower Jasaan, Jasaan Misamis Oriental', pageWidth / 2, cursorY, { align: 'center' })
+
+  // Main title
+  cursorY += lineGap * 1.5
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text('DRY DOCK CERTIFICATE', pageWidth / 2, cursorY, { align: 'center' })
+
+  // Ship details table
+  cursorY += lineGap * 2
+  const tableStartX = margin
+  const colWidths = [100, 100, 100, 100, 100]
+  const rowHeight = 25
+
+  const headers = ['Name of Ship', 'Distinctive Number of Letters', 'Port of Registry', 'Ship Type', 'IMO Number']
+  let xPos = tableStartX
+  headers.forEach((header, idx) => {
+    doc.setFillColor(240, 240, 240)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'S')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(header, xPos + 5, cursorY + 15, { maxWidth: colWidths[idx] - 10 })
+    xPos += colWidths[idx]
+  })
+
+  // Data row
+  cursorY += rowHeight
+  xPos = tableStartX
+  const distinctiveNumber = vesselData?.distinctiveNumber || 'THS'
+  const portOfRegistry = String(Math.floor(10 + Math.random() * 90))
+  const shipData = [
+    vesselName,
+    distinctiveNumber,
+    portOfRegistry,
+    vesselData?.shipType || '',
+    imoNumber
+  ]
+  shipData.forEach((data, idx) => {
+    doc.setFillColor(255, 255, 255)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'F')
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.5)
+    doc.rect(xPos, cursorY, colWidths[idx], rowHeight, 'S')
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(data, xPos + 5, cursorY + 15, { maxWidth: colWidths[idx] - 10 })
+    xPos += colWidths[idx]
+  })
+
+  // Certification statement
+  cursorY += rowHeight + lineGap * 1.5
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.text('THIS IS TO CERTIFY:', margin, cursorY)
+  
+  cursorY += lineGap * 1.5
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('1. That the dry docking and maintenance of the above mentioned ship was found to comply with the provisions of the MARINA memorandum circular 203.', margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.5
+  })
+  
+  cursorY += lineGap * 2
+  doc.text('2. That the ship is suitable for carriage of those classes of dangerous goods are specified in the appendix hereto, subject to any provisions of Maritime Industry Authority.', margin, cursorY, {
+    maxWidth: pageWidth - margin * 2,
+    lineHeightFactor: 1.5
+  })
+
+  // Validity and dates
+  cursorY += lineGap * 2.5
+  const expiryDate = new Date(issuedDate)
+  expiryDate.setFullYear(expiryDate.getFullYear() + 3) // 3 years validity
+  
+  doc.setFontSize(10)
+  doc.text(`This document is valid until ${expiryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, margin, cursorY)
+  
+  cursorY += lineGap * 1.2
+  const day = issuedDate.getDate()
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const month = monthNames[issuedDate.getMonth()]
+  const year = issuedDate.getFullYear()
+  doc.text(`Completion date of the survey on which this certificate is based: ${issuedDate.toLocaleDateString('en-GB')}`, margin, cursorY)
+  
+  cursorY += lineGap * 1.2
+  doc.text(`Issued at PICMW Shipyard, on the ${day} ${month} ${year}`, margin, cursorY)
+
+  // Footer with Bureau Veritas logos and signature
+  cursorY = pageHeight - 100
+  const signatureImg = loadAssetImage('signature.png')
+  if (signatureImg) {
+    doc.addImage(signatureImg, 'PNG', pageWidth - margin - 120, cursorY, 100, 40)
+  }
+  
+  cursorY += 45
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('BUREAU VERITAS', pageWidth - margin - 120, cursorY)
+  cursorY += lineGap * 0.8
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text('R. PAPASTEFANOU', pageWidth - margin - 120, cursorY)
+  cursorY += lineGap * 0.8
+  doc.text('By Order of the Secretary', pageWidth - margin - 120, cursorY)
+
+  const pdfOutput = doc.output('arraybuffer')
+  return Buffer.from(pdfOutput)
+}
+
+// Generic certificate generator (fallback)
 async function generateCertificatePDF(
   certificateName: string,
   vesselName: string,
   imoNumber: string,
   companyName: string,
   issuedDate: Date,
-  shipyardName: string
+  shipyardName: string,
+  vesselData?: {
+    shipType?: string | null
+    flag?: string | null
+    distinctiveNumber?: string | null
+  },
+  services?: Array<{ serviceName: string; progress?: number | null; startDate?: Date; endDate?: Date; area?: number | null }>
 ): Promise<Buffer> {
+  if (certificateName === 'Drydock Report') {
+    return generateDrydockReportPDF(vesselName, imoNumber, companyName, issuedDate, shipyardName, vesselData, services)
+  } else if (certificateName === 'Drydock Certificate') {
+    return generateDrydockCertificatePDF(vesselName, imoNumber, companyName, issuedDate, shipyardName, vesselData)
+  }
+  
+  // Fallback to old format for other certificates
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   
-  // Header with border
-  doc.setDrawColor(19, 70, 134) // #134686
-  doc.setLineWidth(1)
-  doc.rect(15, 10, pageWidth - 30, 30)
-  
-  // Title
   doc.setFontSize(20)
   doc.setFont('helvetica', 'bold')
-  doc.setTextColor(19, 70, 134)
-  doc.text(certificateName.toUpperCase(), pageWidth / 2, 25, { align: 'center' })
+  doc.text(certificateName.toUpperCase(), pageWidth / 2, 50, { align: 'center' })
   
-  // Subtitle
-  doc.setFontSize(12)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(100, 100, 100)
-  doc.text('Marinex Platform - Drydock Operations', pageWidth / 2, 32, { align: 'center' })
-  
-  let yPosition = 60
-  
-  // Certificate Number
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(0, 0, 0)
-  doc.text('CERTIFICATE NUMBER:', 20, yPosition)
-  doc.setFont('helvetica', 'normal')
-  const certNumber = `CERT-${Date.now().toString().slice(-8)}`
-  doc.text(certNumber, 20 + doc.getTextWidth('CERTIFICATE NUMBER: ') + 5, yPosition)
-  yPosition += 15
-  
-  // Certificate Details Section
-  doc.setFontSize(14)
-  doc.setFont('helvetica', 'bold')
-  doc.text('CERTIFICATE DETAILS', 20, yPosition)
-  yPosition += 10
-  
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'normal')
-  
-  const details = [
-    { label: 'Vessel Name:', value: vesselName },
-    { label: 'IMO Number:', value: imoNumber },
-    { label: 'Company Name:', value: companyName },
-    { label: 'Issued By:', value: shipyardName },
-    { label: 'Issue Date:', value: issuedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
-    { label: 'Certificate Type:', value: certificateName }
-  ]
-  
-  details.forEach(detail => {
-    doc.setFont('helvetica', 'bold')
-    doc.text(detail.label, 25, yPosition)
-    doc.setFont('helvetica', 'normal')
-    doc.text(detail.value, 25 + doc.getTextWidth(detail.label) + 5, yPosition)
-    yPosition += 8
-  })
-  
-  yPosition += 10
-  
-  // Certificate Statement
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(0, 0, 0)
-  const statement = `This is to certify that the drydock operations for the above-mentioned vessel have been completed successfully at 100%. The ${certificateName} has been issued in accordance with maritime regulations and standards.`
-  const splitText = doc.splitTextToSize(statement, pageWidth - 50)
-  doc.text(splitText, 25, yPosition)
-  yPosition += splitText.length * 6 + 10
-  
-  // Signature Section
-  yPosition = pageHeight - 80
-  doc.setDrawColor(0, 0, 0)
-  doc.setLineWidth(0.5)
-  doc.line(25, yPosition, pageWidth - 25, yPosition)
-  yPosition += 10
-  
-  doc.setFontSize(10)
-  doc.setFont('helvetica', 'bold')
-  doc.text('Authorized Signature', 25, yPosition)
-  yPosition += 8
-  doc.setFont('helvetica', 'normal')
-  doc.text(shipyardName, 25, yPosition)
-  yPosition += 5
-  doc.setFontSize(9)
-  doc.setTextColor(100, 100, 100)
-  doc.text('Certified Shipyard', 25, yPosition)
-  
-  // Footer
-  yPosition = pageHeight - 30
-  doc.setFontSize(8)
-  doc.setTextColor(100, 100, 100)
-  doc.text('This certificate was generated automatically by the Marinex Platform.', pageWidth / 2, yPosition, { align: 'center' })
-  doc.text(`Generated on: ${new Date().toLocaleString()}`, pageWidth / 2, yPosition + 5, { align: 'center' })
-  
-  // Convert to buffer
   const pdfOutput = doc.output('arraybuffer')
   return Buffer.from(pdfOutput)
 }
@@ -228,9 +508,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate that all services are 100% complete before issuing certificates
-    const services = await prisma.drydockService.findMany({
+  const services = await prisma.drydockService.findMany({
       where: { drydockBookingId: bookingId },
-      select: { id: true, progress: true, serviceName: true }
+      select: { id: true, progress: true, serviceName: true, startDate: true, endDate: true }
     })
 
     if (services.length === 0) {
@@ -326,6 +606,30 @@ export async function POST(req: NextRequest) {
       ? (shipyardData[0].shipyardName || 'Certified Shipyard')
       : 'Certified Shipyard'
 
+    // Get servicesNeeded from drydock request (for area per service)
+    const requestDetail = await prisma.drydockRequest.findUnique({
+      where: { id: booking.drydockRequestId },
+      select: { servicesNeeded: true }
+    })
+    const areaMap: Record<string, number> = {}
+    if (requestDetail?.servicesNeeded) {
+      try {
+        const parsed = requestDetail.servicesNeeded as any[]
+        parsed.forEach((svc: any) => {
+          if (svc?.name && typeof svc.area === 'number') {
+            areaMap[String(svc.name).toLowerCase()] = svc.area
+          }
+        })
+      } catch (e) {
+        console.warn('Could not parse servicesNeeded', e)
+      }
+    }
+
+    const servicesWithArea = services.map(svc => ({
+      ...svc,
+      area: areaMap[svc.serviceName.toLowerCase()] ?? null
+    }))
+
     // Prepare certificates to issue
     const certificatesToIssue: Array<{ name: string; type: string }> = []
     
@@ -364,7 +668,13 @@ export async function POST(req: NextRequest) {
               booking.imoNumber,
               vessel.user.fullName || vessel.user.email || 'Shipowner',
               now,
-              shipyardName
+              shipyardName,
+              {
+                shipType: vessel.shipType,
+                flag: vessel.flag,
+                distinctiveNumber: 'THS'
+              },
+              servicesWithArea
             )
             
             console.log(`Uploading PDF to S3 for ${cert.name}...`)

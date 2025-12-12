@@ -44,6 +44,13 @@ export async function GET(request: NextRequest) {
         key = pathParts.slice(1).join('/')
       }
 
+      // Clean up key: decode, strip query fragments accidentally embedded in path
+      key = decodeURIComponent(key)
+      if (key.includes('?')) {
+        key = key.split('?')[0]
+      }
+      key = key.replace(/^\/+/, '').replace(/\/+$/, '')
+
       // Fallback to environment variable if bucket extraction fails
       if (!bucket || bucket.length === 0) {
         bucket = process.env.AWS_S3_BUCKET || ''
@@ -79,7 +86,8 @@ export async function GET(request: NextRequest) {
 
     const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }) // 1 hour expiry
 
-    return NextResponse.redirect(signedUrl)
+    // Return JSON so the frontend can open it explicitly
+    return NextResponse.json({ signedUrl })
 
   } catch (error) {
     console.error('Error generating signed URL:', error)

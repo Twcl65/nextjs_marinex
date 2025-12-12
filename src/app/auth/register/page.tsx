@@ -505,26 +505,6 @@ export default function RegisterPage() {
       const data = await res.json().catch(() => ({}));
       console.log('[Register] success response JSON:', data);
 
-      // Send a confirmation email
-      try {
-        console.log('[Register] Sending confirmation email...');
-        await fetch('/api/send-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: formData.email,
-            subject: 'Welcome to Marinex!',
-            message: 'Your registration is complete.',
-            userType: formData.role,
-            userName: formData.role === 'shipowner' ? formData.fullName : formData.shipyardName,
-          }),
-        });
-        console.log('[Register] Confirmation email request sent.');
-      } catch (emailError) {
-        console.error('[Register] Failed to send confirmation email:', emailError);
-        // Do not block the user flow if email sending fails
-      }
-
       // Update progress to 100%
       setUploadProgress(100);
 

@@ -951,7 +951,7 @@ export default function DrydockOperationsPage() {
                     <div key={booking.id} className="relative">
                       <Card 
                         key={booking.id} 
-                        className={`shadow-sm rounded-md border border-gray-200 transition-all duration-300 ${isCompleted ? 'filter blur-sm' : 'cursor-pointer'}`}
+                        className={`shadow-sm rounded-md border border-gray-200 transition-all duration-300 ${isCompleted ? 'filter blur-xs' : 'cursor-pointer'}`}
                         onClick={() => !isCompleted && handleCardClick(booking)}
                       >
                         <CardContent className="px-4 py-1">
@@ -1007,7 +1007,7 @@ export default function DrydockOperationsPage() {
                       </Card>
                       {isCompleted && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center rounded-md">
-                          <span className="bg-white/60 backdrop-blur-xs text-gray-800 font-bold text-sm px-4 py-2 rounded-lg shadow-md">COMPLETED</span>
+                          <span className="bg-green-500 text-white font-bold text-sm px-4 py-2 rounded-lg shadow-md">COMPLETED</span>
                           <Button 
                               variant="secondary" 
                               className="mt-4" 
@@ -1511,7 +1511,7 @@ export default function DrydockOperationsPage() {
                             </div>
                             <div>
                                 <p className="text-gray-500">Final Bid</p>
-                                <p className="font-medium text-gray-900">${selectedBookingDetails.totalBid.toLocaleString()}</p>
+                                <p className="font-medium text-gray-900">₱{selectedBookingDetails.totalBid.toLocaleString()}</p>
                             </div>
                         </div>
                     </div>
@@ -1548,16 +1548,23 @@ export default function DrydockOperationsPage() {
                                               <TableCell>{new Date(cert.issuedDate).toLocaleDateString()}</TableCell>
                                               <TableCell>
                                                   <Button
-                                                      variant="outline"
-                                                      size="sm"
-                                                      onClick={() => {
-                                                        if (cert.certificateUrl) {
-                                                            window.open(`/api/view-certificate?url=${encodeURIComponent(cert.certificateUrl)}`, '_blank')
-                                                        }
-                                                      }}
-                                                      disabled={!cert.certificateUrl}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={async () => {
+                                                      if (!cert.certificateUrl) return
+                                                      try {
+                                                        const resp = await fetch(`/api/view-certificate?url=${encodeURIComponent(cert.certificateUrl)}`)
+                                                        if (!resp.ok) throw new Error('Failed to get signed URL')
+                                                        const data = await resp.json()
+                                                        if (!data.signedUrl) throw new Error('Missing signed URL')
+                                                        window.open(data.signedUrl, '_blank')
+                                                      } catch (err) {
+                                                        console.error('Error opening certificate', err)
+                                                      }
+                                                    }}
+                                                    disabled={!cert.certificateUrl}
                                                   >
-                                                      View
+                                                    View
                                                   </Button>
                                               </TableCell>
                                           </TableRow>

@@ -854,7 +854,32 @@ export default function DrydockManagementPage() {
     setOpenBidDialog(false)
   }
 
-  const handleBookingConfirmation = () => {
+  const handleBookingConfirmation = async () => {
+    // Check if there's already an active booking for this drydock request
+    if (selectedRequest?.id && user?.id) {
+      try {
+        const response = await fetch(`/api/shipowner/drydock-bookings?drydockRequestId=${selectedRequest.id}&userId=${user.id}`)
+        if (response.ok) {
+          const data = await response.json()
+          const bookings = data.bookings || []
+          const activeBooking = bookings.find((booking: { status: string }) => 
+            booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED'
+          )
+          
+          if (activeBooking) {
+            toast({
+              title: "Booking Already Exists",
+              description: `You already have an active booking (${activeBooking.status}) for this drydock request. Please cancel the existing booking first.`,
+              variant: "destructive"
+            })
+            return
+          }
+        }
+      } catch (error) {
+        console.error('Error checking existing bookings:', error)
+      }
+    }
+    
     setShowBookingConfirmation(true)
   }
 
@@ -890,6 +915,12 @@ export default function DrydockManagementPage() {
             newSet.delete(selectedBid.bidId)
             return newSet
           })
+        }
+        
+        // Fetch booked shipyards and show the booked shipyards dialog
+        if (selectedRequest?.id) {
+          await fetchBookedShipyards(selectedRequest.id)
+          setOpenBookedShipyardsDialog(true)
         }
         
         toast({
@@ -985,14 +1016,23 @@ export default function DrydockManagementPage() {
         
         // Refresh the booked shipyards list
         if (selectedRequest?.id) {
-          fetchBookedShipyards(selectedRequest.id)
+          await fetchBookedShipyards(selectedRequest.id)
           // Also refresh the booked bids for the shipyard cards
           if (user?.id) {
-            checkBookedBids(selectedRequest.id, user.id)
+            await checkBookedBids(selectedRequest.id, user.id)
           }
         }
         setShowCancelConfirmation(false)
         setBookingToCancel(null)
+        
+        // Close booked shipyards dialog and reopen bidders dialog
+        setOpenBookedShipyardsDialog(false)
+        // Refresh shipyards with bids before reopening
+        if (selectedRequest?.id) {
+          await fetchShipyardsWithBids(selectedRequest.id)
+          setOpenShipyardsDialog(true)
+        }
+        
         toast({
           title: "Booking Cancelled",
           description: "Your booking has been cancelled successfully.",

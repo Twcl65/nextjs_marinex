@@ -1128,7 +1128,7 @@ export default function ManageUsersPage() {
             </div>
           )}
 
-          {selectedUser?.status !== 'ACTIVE' && selectedUser?.status !== 'REJECTED' && (
+          {selectedUser?.status !== 'ACTIVE' && selectedUser?.status !== 'REJECTED' && selectedUser?.status !== 'SUSPENDED' && (
             <DialogFooter className="flex justify-center">
               <div className="flex gap-3">
                 <Button className="bg-red-600 hover:bg-red-700 text-white border-red-600" onClick={handleRejectClick}>

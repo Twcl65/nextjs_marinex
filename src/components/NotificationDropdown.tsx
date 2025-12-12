@@ -121,19 +121,6 @@ export function NotificationDropdown() {
     }
   }, [showAllDialog])
 
-  // Poll for new notifications every 30 seconds when dropdown is closed
-  useEffect(() => {
-    if (!user?.id) return
-
-    const interval = setInterval(() => {
-      if (!isOpen) {
-        fetchNotifications()
-      }
-    }, 30000) // Poll every 30 seconds
-
-    return () => clearInterval(interval)
-  }, [user?.id, isOpen, fetchNotifications])
-
   // Get notifications grouped by day (today first, then other days)
   const getNotificationsByDay = () => {
     const today = new Date()

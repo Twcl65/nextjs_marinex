@@ -290,20 +290,10 @@ export default function VesselRecertificationsPage() {
 
   const handleDownloadCertificate = async (certificateUrl: string, vesselName: string) => {
     try {
-      let downloadUrl = certificateUrl
-      
-      // Check if URL is already a signed URL (contains query parameters) or try to get signed URL
-      if (!certificateUrl.includes('?') && certificateUrl.includes('s3.')) {
-        // Get signed URL for S3 files
-        const response = await fetch(`/api/signed-url?url=${encodeURIComponent(certificateUrl)}`)
-        
-        if (response.ok) {
-          const data = await response.json()
-          if (data.signedUrl) {
-            downloadUrl = data.signedUrl
-          }
-        }
-      }
+      const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(certificateUrl)}`)
+      if (!response.ok) throw new Error('Failed to generate signed URL')
+      const data = await response.json()
+      if (!data.signedUrl) throw new Error('Missing signed URL')
 
       // Extract filename from URL or use default
       let filename = `${vesselName}_Certificate.pdf`
@@ -319,16 +309,21 @@ export default function VesselRecertificationsPage() {
         // Use default filename if extraction fails
       }
 
-      // Create a temporary anchor element to trigger download
+      // Open in new tab (lets user view/print/save). For download, create link.
       const link = document.createElement('a')
-      link.href = downloadUrl
+      link.href = data.signedUrl
       link.download = filename
-      link.target = '_blank' // Open in new tab as fallback
+      link.target = '_blank'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
     } catch (error) {
       console.error('Error downloading certificate:', error)
+      toast({
+        title: "Error",
+        description: "Failed to download certificate",
+        variant: "destructive"
+      })
     }
   }
 

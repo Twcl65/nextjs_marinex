@@ -2016,19 +2016,6 @@ export default function BidDrydockPage() {
                                 </div>
                                 <div className="flex flex-wrap gap-3">
                                     <Button
-                                        variant="outline"
-                                        disabled={!bidPdfUrl || isGeneratingDocument}
-                                        onClick={() => {
-                                            if (bidPdfUrl) {
-                                                // Use proxy route to avoid CORS errors
-                                                const proxyUrl = `/api/proxy-pdf?url=${encodeURIComponent(bidPdfUrl)}`;
-                                                window.open(proxyUrl, '_blank');
-                                            }
-                                        }}
-                                    >
-                                        View Bid Document
-                                    </Button>
-                                    <Button
                                         className="bg-blue-600 hover:bg-blue-700 text-white"
                                         onClick={handleRegenerateDocument}
                                         disabled={isGeneratingDocument || !calculationResults}

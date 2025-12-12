@@ -341,14 +341,17 @@ export default function AuthorityApprovalsPage() {
                                 }
                                 try {
                                   const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(request.authorityCertificate!)}`)
-                                  if (response.ok) {
-                                    const data = await response.json()
-                                    window.open(data.signedUrl, '_blank')
-                                  } else {
-                                    console.error('Failed to generate signed URL')
-                                  }
+                                  if (!response.ok) throw new Error('Failed to generate signed URL')
+                                  const data = await response.json()
+                                  if (!data.signedUrl) throw new Error('Missing signed URL')
+                                  window.open(data.signedUrl, '_blank')
                                 } catch (error) {
                                   console.error('Error opening certificate:', error)
+                                  toast({
+                                    title: "Error",
+                                    description: "Failed to access certificate",
+                                    variant: "destructive"
+                                  })
                                 }
                               }}
                             >

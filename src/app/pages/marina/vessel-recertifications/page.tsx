@@ -336,7 +336,6 @@ export default function VesselRecertifications() {
                                                             className="bg-black text-white hover:bg-gray-800"
                                                             onClick={async () => {
                                                                 try {
-                                                                    // Try to open the existing URL first
                                                                     if (!req.vesselCertificateFile) {
                                                                         toast({
                                                                             title: "Error",
@@ -345,59 +344,18 @@ export default function VesselRecertifications() {
                                                                         })
                                                                         return
                                                                     }
-                                                                    const response = await fetch(req.vesselCertificateFile, { method: 'HEAD' })
-                                                                    if (response.ok) {
-                                                                        window.open(req.vesselCertificateFile, '_blank')
-                                                                    } else {
-                                                                        // If the URL is expired, generate a new one
-                                                                        const refreshResponse = await fetch('/api/marina/generate-signed-url', {
-                                                                            method: 'POST',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({ recertificateId: req.id })
-                                                                        })
-                                                                        const refreshData = await refreshResponse.json()
-                                                                        if (refreshData.success) {
-                                                                            window.open(refreshData.data.signedUrl, '_blank')
-                                                                            // Update the local state
-                                                                            setRecertifications(prev => prev.map(r => 
-                                                                                r.id === req.id 
-                                                                                    ? { ...r, vesselCertificateFile: refreshData.data.signedUrl }
-                                                                                    : r
-                                                                            ))
-                                                                        } else {
-                                                                            toast({
-                                                                                title: "Error",
-                                                                                description: "Failed to access certificate",
-                                                                                variant: "destructive"
-                                                                            })
-                                                                        }
-                                                                    }
+                                                                    const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(req.vesselCertificateFile)}`)
+                                                                    if (!response.ok) throw new Error('Failed to generate signed URL')
+                                                                    const data = await response.json()
+                                                                    if (!data.signedUrl) throw new Error('Missing signed URL')
+                                                                    window.open(data.signedUrl, '_blank')
                                                                 } catch (error) {
-                                                                    // If there's an error, try to generate a new signed URL
-                                                                    try {
-                                                                        const refreshResponse = await fetch('/api/marina/generate-signed-url', {
-                                                                            method: 'POST',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({ recertificateId: req.id })
-                                                                        })
-                                                                        const refreshData = await refreshResponse.json()
-                                                                        if (refreshData.success) {
-                                                                            window.open(refreshData.data.signedUrl, '_blank')
-                                                                            setRecertifications(prev => prev.map(r => 
-                                                                                r.id === req.id 
-                                                                                    ? { ...r, vesselCertificateFile: refreshData.data.signedUrl }
-                                                                                    : r
-                                                                            ))
-                                                                        } else {
-                                                                            throw new Error('Failed to generate new URL')
-                                                                        }
-                                                                    } catch (refreshError) {
-                                                                        toast({
-                                                                            title: "Error",
-                                                                            description: "Failed to access certificate",
-                                                                            variant: "destructive"
-                                                                        })
-                                                                    }
+                                                                    console.error('Error opening certificate:', error)
+                                                                    toast({
+                                                                        title: "Error",
+                                                                        description: "Failed to access certificate",
+                                                                        variant: "destructive"
+                                                                    })
                                                                 }
                                                             }}
                                                         >

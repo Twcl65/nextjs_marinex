@@ -15,7 +15,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check if booking already exists for this bid (only if not cancelled)
+    // Check if there's already an active booking for this drydock request (any bid)
+    const existingActiveBooking = await prisma.$queryRaw`
+      SELECT id, status, drydockBidId FROM drydock_bookings 
+      WHERE drydockRequestId = ${drydockRequestId} 
+        AND userId = ${userId} 
+        AND status != 'CANCELLED'
+      LIMIT 1
+    `
+
+    if (Array.isArray(existingActiveBooking) && existingActiveBooking.length > 0) {
+      const booking = existingActiveBooking[0] as { id: string; status: string; drydockBidId: string }
+      // Prevent booking if there's already an active booking for this request
+      return NextResponse.json(
+        { error: `You already have an active booking (${booking.status}) for this drydock request. Please cancel the existing booking first.` },
+        { status: 409 }
+      )
+    }
+
+    // Check if booking already exists for this specific bid (only if not cancelled)
     const existingBooking = await prisma.$queryRaw`
       SELECT id, status FROM drydock_bookings 
       WHERE drydockBidId = ${drydockBidId} AND userId = ${userId}

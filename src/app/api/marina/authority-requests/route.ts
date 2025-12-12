@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import jsPDF from 'jspdf'
+import fs from 'fs'
+import path from 'path'
 import { logUserActivity, ActivityType } from '@/lib/activity-logger'
 import { jwtVerify } from 'jose'
 
@@ -396,7 +398,7 @@ Best regards,
   }
 }
 
-// Helper function to generate PDF from certificate data using jsPDF
+// Helper function to generate PDF styled like the provided MARINA sample certificate
 async function generatePDFFromData(certificateData: {
   certificateNumber: string;
   vesselName: string;
@@ -408,79 +410,153 @@ async function generatePDFFromData(certificateData: {
   approvedDate: Date | string;
   validUntil: Date | string;
 }): Promise<Buffer> {
-  const doc = new jsPDF()
-  
-  // Set up the document
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+
   const pageWidth = doc.internal.pageSize.getWidth()
-  const pageHeight = doc.internal.pageSize.getHeight()
-  
-  // Header
-  doc.setFontSize(20)
+  const margin = 55
+  const lineGap = 20
+
+  const loadAssetImage = (fileName: string): string | null => {
+    try {
+      const imgPath = path.join(process.cwd(), 'public', 'assets', fileName)
+      if (!fs.existsSync(imgPath)) return null
+      const data = fs.readFileSync(imgPath)
+      return `data:image/png;base64,${data.toString('base64')}`
+    } catch (err) {
+      console.error('Error loading image asset', fileName, err)
+      return null
+    }
+  }
+
+  const safe = (value: string | number | undefined | null, fallback: string) =>
+    value ? String(value) : fallback
+
+  const requestDate =
+    certificateData.requestDate instanceof Date
+      ? certificateData.requestDate
+      : new Date(certificateData.requestDate)
+  const approvedDate =
+    certificateData.approvedDate instanceof Date
+      ? certificateData.approvedDate
+      : new Date(certificateData.approvedDate)
+  const endDate =
+    certificateData.validUntil instanceof Date
+      ? certificateData.validUntil
+      : new Date(certificateData.validUntil)
+
+  // Header (no border per request)
+  // Logos
+  const leftLogo = loadAssetImage('marinex_logo.png')
+  if (leftLogo) {
+    doc.addImage(leftLogo, 'PNG', margin + 8, margin + 8, 80, 60)
+  }
+  const rightLogo = loadAssetImage('marinalogo.png')
+  if (rightLogo) {
+    doc.addImage(rightLogo, 'PNG', pageWidth - margin - 88, margin + 8, 80, 60)
+  }
+
   doc.setFont('helvetica', 'bold')
-  doc.setTextColor(19, 70, 134) // #134686
-  doc.text('AUTHORITY APPROVAL CERTIFICATE', pageWidth / 2, 30, { align: 'center' })
-  
-  doc.setFontSize(12)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(100, 100, 100)
-  doc.text('Marine Industry Authority - Marina Portal', pageWidth / 2, 40, { align: 'center' })
-  
-  // Draw a line under the header
-  doc.setDrawColor(19, 70, 134)
-  doc.setLineWidth(1)
-  doc.line(50, 50, pageWidth - 50, 50)
-  
-  // Certificate number box
-  doc.setFillColor(240, 240, 240)
-  doc.rect(50, 60, pageWidth - 100, 15, 'F')
-  doc.setFontSize(12)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(0, 0, 0)
-  doc.text(`Certificate Number: ${certificateData.certificateNumber}`, pageWidth / 2, 70, { align: 'center' })
-  
-  // Certificate details
-  let yPosition = 100
-  const lineHeight = 15
-  
-  doc.setFontSize(12)
-  doc.setFont('helvetica', 'normal')
-  
-  const requestDate = certificateData.requestDate instanceof Date 
-    ? certificateData.requestDate 
-    : new Date(certificateData.requestDate)
-  const approvedDate = certificateData.approvedDate instanceof Date 
-    ? certificateData.approvedDate 
-    : new Date(certificateData.approvedDate)
-  const validUntil = certificateData.validUntil instanceof Date 
-    ? certificateData.validUntil 
-    : new Date(certificateData.validUntil)
-  
-  const details = [
-    { label: 'Vessel Name:', value: certificateData.vesselName },
-    { label: 'IMO Number:', value: certificateData.imoNumber },
-    { label: 'Company:', value: certificateData.companyName },
-    { label: 'Ship Type:', value: certificateData.shipType },
-    { label: 'Flag:', value: certificateData.flag },
-    { label: 'Request Date:', value: requestDate.toLocaleDateString() },
-    { label: 'Approved Date:', value: approvedDate.toLocaleDateString() },
-    { label: 'Valid Until:', value: validUntil.toLocaleDateString() }
-  ]
-  
-  details.forEach(detail => {
-    doc.setFont('helvetica', 'bold')
-    doc.text(detail.label, 60, yPosition)
-    doc.setFont('helvetica', 'normal')
-    doc.text(detail.value, 60 + doc.getTextWidth(detail.label) + 5, yPosition)
-    yPosition += lineHeight
-  })
-  
-  // Footer
-  yPosition = pageHeight - 60
   doc.setFontSize(10)
-  doc.setTextColor(100, 100, 100)
-  doc.text('This certificate is valid for drydock operations as approved by the Marine Industry Authority.', pageWidth / 2, yPosition, { align: 'center' })
-  doc.text(`Generated on ${new Date().toLocaleDateString()}`, pageWidth / 2, yPosition + 10, { align: 'center' })
-  
+  doc.text('Republic of the Philippines', pageWidth / 2, margin + 18, { align: 'center' })
+  doc.text('Department of Transportation', pageWidth / 2, margin + 32, { align: 'center' })
+  doc.setFontSize(14)
+  doc.text('MARITIME INDUSTRY AUTHORITY', pageWidth / 2, margin + 50, { align: 'center' })
+  doc.setFontSize(12)
+  doc.text('REGION X', pageWidth / 2, margin + 68, { align: 'center' })
+
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'bold')
+  doc.text('AUTHORITY APPROVAL FOR DRY DOCKING', pageWidth / 2, margin + 100, { align: 'center' })
+
+  let cursorY = margin + 135
+
+  // Date line
+  doc.setFont('helvetica', 'bold')
+  doc.text('Date:', margin, cursorY)
+  doc.setFont('helvetica', 'normal')
+  doc.text(approvedDate.toLocaleDateString(), margin + 45, cursorY)
+  cursorY += lineGap * 1.6
+
+  // Body text
+  const body = [
+    { bold: 'To Whom It May Concern:' },
+    {},
+    {
+      text: `This is to certify that the Maritime Industry Authority (MARINA) hereby grants Authority Approval for Dry Docking to the vessel ${safe(
+        certificateData.vesselName,
+        'Name of Ship'
+      )}, owned and operated by ${safe(certificateData.companyName, 'Name of Company/Operator')}.`
+    },
+    {},
+    {
+      text: 'Based on the documents submitted and the evaluation conducted, the vessel has been found compliant with the technical and operational requirements prescribed under the existing rules and regulations governing dry-docking activities for Philippine-registered ships.'
+    },
+    {},
+    {
+      text: `Accordingly, the ${safe(
+        certificateData.vesselName,
+        'Name of Ship'
+      )} is hereby authorized to undergo dry docking from ${requestDate.toLocaleDateString()} to ${endDate.toLocaleDateString()} for the purpose of hull inspection, maintenance, repair, and other associated works deemed necessary to ensure continued seaworthiness and safety of navigation.`
+    },
+    {},
+    {
+      text: 'This certificate is issued for the sole purpose of dry-docking authorization and shall be presented to the concerned shipyard, regulatory offices, and port authorities as needed. Any extension or modification of the approved schedule must be coordinated with MARINA for proper evaluation and approval.'
+    }
+  ]
+
+  doc.setFontSize(12)
+  body.forEach((paragraph) => {
+    if (paragraph.bold) {
+      doc.setFont('helvetica', 'bold')
+      doc.text(paragraph.bold, margin, cursorY, { maxWidth: pageWidth - margin * 2 })
+    } else if (paragraph.text) {
+      doc.setFont('helvetica', 'normal')
+      doc.text(paragraph.text, margin, cursorY, {
+        maxWidth: pageWidth - margin * 2,
+        lineHeightFactor: 1.5
+      })
+    }
+    cursorY += paragraph.text ? lineGap * 1.7 : lineGap
+  })
+
+  cursorY += lineGap * 0.8
+
+  // Certificate number and IMO/flag row (moved lower to use whitespace)
+  cursorY += lineGap * 2.5
+  doc.setFont('helvetica', 'bold')
+  doc.text(`Certificate No.: ${certificateData.certificateNumber}`, margin, cursorY)
+  doc.text(`IMO No.: ${safe(certificateData.imoNumber, 'N/A')}`, margin + 250, cursorY)
+  cursorY += lineGap
+  doc.text(`Flag: ${safe(certificateData.flag, 'N/A')}`, margin, cursorY)
+  doc.text(`Ship Type: ${safe(certificateData.shipType, 'N/A')}`, margin + 250, cursorY)
+
+  // Footer / issued info
+  cursorY = 680
+  doc.setFontSize(11)
+  doc.setFont('helvetica', 'normal')
+  doc.text(
+    `Issued at MARINA Region X, Cagayan de Oro City, Philippines, on ${approvedDate.toLocaleDateString()}.`,
+    margin,
+    cursorY,
+    { maxWidth: pageWidth - margin * 1 }
+  )
+
+  // Signature block
+  cursorY += lineGap * 2
+  doc.setFont('helvetica', 'bold')
+  doc.text('Issued by:', margin, cursorY)
+  cursorY += lineGap * 2
+
+  const signatureImg = loadAssetImage('signature.png')
+  if (signatureImg) {
+    doc.addImage(signatureImg, 'PNG', margin, cursorY - lineGap, 120, 50)
+  }
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('VADM ROBINSON A. EMPEDRAD', margin, cursorY)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Administrator', margin, cursorY + lineGap)
+
   // Convert to buffer
   const pdfOutput = doc.output('arraybuffer')
   return Buffer.from(pdfOutput)

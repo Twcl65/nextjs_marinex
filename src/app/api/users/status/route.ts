@@ -22,24 +22,37 @@ export async function PATCH(req: NextRequest) {
     if (status === 'ACTIVE' || status === 'REJECTED' || status === 'SUSPENDED') {
       let emailType = ''
       let subject = ''
+      let message = ''
+      const baseUrl =
+        process.env.NEXT_PUBLIC_BASE_URL ||
+        process.env.NEXTAUTH_URL ||
+        'http://localhost:3000'
       
       if (status === 'ACTIVE') {
         if (user.status === 'SUSPENDED') {
           emailType = 'ACCOUNT_REACTIVATED'
           subject = 'Your Marinex Account has been Reactivated'
+          message = 'Your Marinex account has been reactivated. You can now log in.'
         } else {
           emailType = 'REGISTRATION_APPROVED'
           subject = 'Your Marinex Account has been Approved'
+          message = 'Your Marinex account has been approved. You can now log in.'
         }
       } else if (status === 'REJECTED') {
         emailType = 'REGISTRATION_REJECTED'
         subject = 'Action Required: Your Marinex Account Application'
+        message = rejectionReason
+          ? `Reason for rejection: ${rejectionReason}`
+          : 'Your application was rejected. Please check the feedback and reapply.'
       } else if (status === 'SUSPENDED') {
         emailType = 'ACCOUNT_SUSPENDED'
         subject = 'Your Marinex Account has been Suspended'
+        message =
+          rejectionReason ||
+          'Your account has been suspended. Please contact support for assistance.'
       }
 
-      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/send-email`, {
+      await fetch(`${baseUrl}/api/send-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -47,7 +60,7 @@ export async function PATCH(req: NextRequest) {
         body: JSON.stringify({
           to: updatedUser.email,
           subject,
-          message: rejectionReason || `Your account has been ${status.toLowerCase()}.`,
+          message,
           emailType,
           userName: updatedUser.fullName || updatedUser.shipyardName || updatedUser.email,
           userType: updatedUser.role,

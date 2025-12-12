@@ -142,6 +142,33 @@ async function handleCreate(body: Record<string, unknown>) {
     }
   }
 
+  // Send registration pending email
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.NEXTAUTH_URL ||
+    'http://localhost:3000'
+  try {
+    await fetch(`${baseUrl}/api/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: created.email,
+        subject: 'Registration received - pending approval',
+        message:
+          'Your registration was received. Our team is reviewing your details and will notify you once approved.',
+        userType: created.role,
+        userName:
+          (fullName && typeof fullName === 'string' && fullName) ||
+          (shipyardName && typeof shipyardName === 'string' && shipyardName) ||
+          created.email,
+        emailType: 'REGISTRATION_PENDING',
+      }),
+    })
+  } catch (emailErr) {
+    console.error('[API /register] failed to send pending email', emailErr)
+    // Do not block registration on email failure
+  }
+
   return NextResponse.json({ user: created }, { status: 201 })
 }
 
