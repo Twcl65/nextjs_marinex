@@ -1765,7 +1765,7 @@ export default function BidDrydockPage() {
                         {/* Your Available Services */}
                         <div className="space-y-3">
                             <h3 className="text-sm font-semibold text-gray-700">Select Services</h3>
-                            <div className="overflow-y-auto max-h-[300px]">
+                            <div className="overflow-y-auto max-h-[200px]">
                                 {shipyardServices.length > 0 ? (
                                     <div className="grid grid-cols-2 gap-3">
                                         {shipyardServices.map((service, index) => {

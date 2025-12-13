@@ -794,6 +794,7 @@ export default function DrydockManagementPage() {
     setSelectedRequest(request)
     setShipyardSearchTerm('')
     await fetchShipyardsWithBids(request.id)
+    await fetchBookedShipyards(request.id)
     setOpenShipyardsDialog(true)
   }
 
@@ -852,6 +853,9 @@ export default function DrydockManagementPage() {
 
   const handleCloseBidDialog = () => {
     setOpenBidDialog(false)
+    if (!isFromBookedView) {
+      setOpenShipyardsDialog(true)
+    }
   }
 
   const handleBookingConfirmation = async () => {
@@ -917,10 +921,9 @@ export default function DrydockManagementPage() {
           })
         }
         
-        // Fetch booked shipyards and show the booked shipyards dialog
+        // Refresh the booked shipyards data in the background
         if (selectedRequest?.id) {
-          await fetchBookedShipyards(selectedRequest.id)
-          setOpenBookedShipyardsDialog(true)
+          fetchBookedShipyards(selectedRequest.id)
         }
         
         toast({
@@ -1986,16 +1989,21 @@ export default function DrydockManagementPage() {
                         <Badge className="bg-blue-100 text-blue-800">
                           {shipyard.bidStatus}
                         </Badge>
-                        <Button
-                          size="sm"
-                          className="bg-[#134686] hover:bg-[#134686]/90 text-white"
-                          onClick={() => {
-                            handleViewBidInformation(shipyard)
-                            setOpenShipyardsDialog(false)
-                          }}
-                        >
-                          View Bid
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {bookedBidIds.has(shipyard.bidId) && (
+                            <span className="text-sm font-medium text-green-600">Already Booked</span>
+                          )}
+                          <Button
+                            size="sm"
+                            className="bg-[#134686] hover:bg-[#134686]/90 text-white"
+                            onClick={() => {
+                              handleViewBidInformation(shipyard)
+                              setOpenShipyardsDialog(false)
+                            }}
+                          >
+                            View Bid
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -2266,19 +2274,37 @@ export default function DrydockManagementPage() {
             )}
 
             <DialogFooter>
-              <Button 
-                variant="outline" 
-                onClick={handleCloseBidDialog}
-              >
-                Close
-              </Button>
-              {!isFromBookedView && (
-                <Button 
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={handleBookingConfirmation}
-                >
-                  Book Now
-                </Button>
+              {selectedBid && bookedBidIds.has(selectedBid.bidId) ? (
+                <div className="flex w-full items-center justify-between">
+                  <Badge className="bg-green-100 text-green-800">Already Booked</Badge>
+                  <Button
+                    variant="destructive"
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    onClick={() => {
+                      const booking = bookedShipyards.find(b => b.drydockBidId === selectedBid.bidId);
+                      if (booking) {
+                        handleCancelBooking(booking);
+                      }
+                      handleCloseBidDialog();
+                    }}
+                  >
+                    Cancel Booking
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={handleCloseBidDialog}>
+                    Close
+                  </Button>
+                  {!isFromBookedView && (
+                    <Button
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={handleBookingConfirmation}
+                    >
+                      Book Now
+                    </Button>
+                  )}
+                </>
               )}
             </DialogFooter>
           </DialogContent>
