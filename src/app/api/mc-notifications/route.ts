@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import crypto from "crypto"
 import { jwtVerify } from "jose"
 import { logUserActivity, ActivityType } from "@/lib/activity-logger"
+import { sendNotificationEmail } from "@/lib/send-email"
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
 
@@ -190,6 +191,24 @@ Best regards,
         ${message}, 0, NOW(), NOW()
       )
     `
+
+    // Send Email notification
+    if (vessel.user.email) {
+        const emailSubject = `Vessel Certificate Expiration Notification for ${vesselName}`;
+        
+        // Convert markdown-like message to HTML
+        const htmlMessage = message
+            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') // Bold
+            .replace(/\n/g, '<br>'); // Newlines
+
+        try {
+            await sendNotificationEmail(vessel.user.email, emailSubject, htmlMessage);
+            console.log(`Email notification sent to ${vessel.user.email}`);
+        } catch (emailError) {
+            console.error(`Failed to send email notification:`, emailError);
+            // Do not block response if email fails
+        }
+    }
 
     // Send SMS notification if user has contact number
     let smsSent = false

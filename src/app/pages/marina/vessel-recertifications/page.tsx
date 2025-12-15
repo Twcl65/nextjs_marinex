@@ -118,6 +118,40 @@ export default function VesselRecertifications() {
     const [rejectOpen, setRejectOpen] = useState(false);
     const [remarks, setRemarks] = useState('');
 
+    const handleViewFile = async (fileUrl: string | undefined) => {
+        if (!fileUrl) {
+            toast({
+                title: "File Not Available",
+                description: "The requested file does not exist.",
+                variant: "destructive"
+            });
+            return;
+        }
+    
+        setLoading(true);
+        try {
+            const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(fileUrl)}`);
+            if (!response.ok) {
+                throw new Error('Failed to get file URL');
+            }
+            const data = await response.json();
+            if (data.signedUrl) {
+                window.open(data.signedUrl, '_blank');
+            } else {
+                throw new Error('Signed URL not found in response');
+            }
+        } catch (error) {
+            console.error("Error viewing file:", error);
+            toast({
+                title: "Error",
+                description: "Could not open the file. Please try again.",
+                variant: "destructive"
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const fetchRecertifications = async () => {
         try {
             setLoading(true)
@@ -432,10 +466,7 @@ export default function VesselRecertifications() {
                                                                             <div className="flex flex-col gap-0.5">
                                                                                 <span className="text-xs font-semibold mb-0.5">Vessel Plans</span>
                                                                                 {req.vesselPlansUrl ? (
-                                                                                    <a href={req.vesselPlansUrl} target="_blank" rel="noopener noreferrer"
-                                                                                        className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block cursor-pointer hover:bg-gray-50 transition">
-                                                                                        View File
-                                                                                    </a>
+                                                                                    <Button variant="outline" size="sm" onClick={() => handleViewFile(req.vesselPlansUrl)} className="border-blue-500 text-blue-500 hover:bg-blue-50 hover:text-blue-600">View File</Button>
                                                                                 ) : (
                                                                                     <span className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block text-gray-400">No file</span>
                                                                                 )}
@@ -443,10 +474,7 @@ export default function VesselRecertifications() {
                                                                             <div className="flex flex-col gap-0.5">
                                                                                 <span className="text-xs font-semibold mb-0.5">Drydock Report</span>
                                                                                 {req.drydockReportUrl ? (
-                                                                                    <a href={req.drydockReportUrl} target="_blank" rel="noopener noreferrer"
-                                                                                        className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block cursor-pointer hover:bg-gray-50 transition">
-                                                                                        View File
-                                                                                    </a>
+                                                                                    <Button variant="outline" size="sm" onClick={() => handleViewFile(req.drydockReportUrl)} className="border-blue-500 text-blue-500 hover:bg-blue-50 hover:text-blue-600">View File</Button>
                                                                                 ) : (
                                                                                     <span className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block text-gray-400">No file</span>
                                                                                 )}
@@ -454,10 +482,7 @@ export default function VesselRecertifications() {
                                                                             <div className="flex flex-col gap-0.5">
                                                                                 <span className="text-xs font-semibold mb-0.5">Drydock Certificate</span>
                                                                                 {req.drydockCertificateUrl ? (
-                                                                                    <a href={req.drydockCertificateUrl} target="_blank" rel="noopener noreferrer"
-                                                                                        className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block cursor-pointer hover:bg-gray-50 transition">
-                                                                                        View File
-                                                                                    </a>
+                                                                                    <Button variant="outline" size="sm" onClick={() => handleViewFile(req.drydockCertificateUrl)} className="border-blue-500 text-blue-500 hover:bg-blue-50 hover:text-blue-600">View File</Button>
                                                                                 ) : (
                                                                                     <span className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block text-gray-400">No file</span>
                                                                                 )}
@@ -465,10 +490,7 @@ export default function VesselRecertifications() {
                                                                             <div className="flex flex-col gap-0.5">
                                                                                 <span className="text-xs font-semibold mb-0.5">Safety Certificate</span>
                                                                                 {req.safetyCertificateUrl ? (
-                                                                                    <a href={req.safetyCertificateUrl} target="_blank" rel="noopener noreferrer"
-                                                                                        className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block cursor-pointer hover:bg-gray-50 transition">
-                                                                                        View File
-                                                                                    </a>
+                                                                                    <Button variant="outline" size="sm" onClick={() => handleViewFile(req.safetyCertificateUrl)} className="border-blue-500 text-blue-500 hover:bg-blue-50 hover:text-blue-600">View File</Button>
                                                                                 ) : (
                                                                                     <span className="bg-white border border-gray-200 rounded px-3 py-2 text-xs w-full block text-gray-400">No file</span>
                                                                                 )}

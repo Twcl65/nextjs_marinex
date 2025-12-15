@@ -66,6 +66,7 @@ export default function ProfilePage() {
     days: '',
     price: ''
   })
+  const [imageError, setImageError] = useState(false)
 
   // Fetch latest user data and initialize form data
   useEffect(() => {
@@ -126,23 +127,16 @@ export default function ProfilePage() {
     fetchUserData()
   }, [user?.id, user?.businessRegNumber, user?.certificateBuilder, user?.certificateOther, user?.certificateRepair, user?.contactNumber, user?.contactPerson, user?.fullName, user?.officeAddress, user?.shipyardDryDock, user?.shipyardName])
 
-  // Fetch signed URL for S3 images
+  // Set the logo URL
   useEffect(() => {
+    setImageError(false) // Reset error state when logoUrl changes
     if (user?.logoUrl) {
       if (user.logoUrl.includes('s3.amazonaws.com')) {
-        fetch(`/api/signed-url?url=${encodeURIComponent(user.logoUrl)}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.signedUrl) {
-              setSignedLogoUrl(data.signedUrl)
-            }
-          })
-          .catch(err => {
-            console.error('Error fetching signed URL:', err)
-            setSignedLogoUrl(user.logoUrl || null)
-          })
+        // Use the proxy for S3 URLs
+        setSignedLogoUrl(`/api/proxy-image?url=${encodeURIComponent(user.logoUrl)}`)
       } else {
-        setSignedLogoUrl(user.logoUrl || null)
+        // Use the URL directly if it's not on S3
+        setSignedLogoUrl(user.logoUrl)
       }
     } else {
       setSignedLogoUrl(null)
@@ -803,13 +797,14 @@ export default function ProfilePage() {
               {/* Profile Header */}
               <div className="flex items-center space-x-4 mb-6">
                 <div className="relative">
-                  {signedLogoUrl ? (
-                    <Image 
-                      src={signedLogoUrl} 
-                      alt="Profile Picture" 
+                  {signedLogoUrl && !imageError ? (
+                    <Image
+                      src={signedLogoUrl}
+                      alt="Profile Picture"
                       width={64}
                       height={64}
                       className="h-16 w-16 rounded-full object-cover border-2 border-gray-200"
+                      onError={() => setImageError(true)}
                     />
                   ) : (
                     <div className="h-16 w-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-lg font-bold border-2 border-gray-200">

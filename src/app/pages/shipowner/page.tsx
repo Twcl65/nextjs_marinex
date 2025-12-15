@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { ShipownerSidebar } from "@/components/shipowner-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppHeader } from "@/components/AppHeader"
@@ -20,6 +21,7 @@ import {
 
 export default function ShipownerPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [dashboardData, setDashboardData] = useState({
     totalVessels: 0,
     ongoingDrydock: 0,
@@ -101,7 +103,10 @@ export default function ShipownerPage() {
               {/* Stats Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 px-5">
                 {/* Total Vessels */}
-                <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+                <Card
+                  className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+                  onClick={() => router.push('/pages/shipowner/vessel-management')}
+                >
                   <div className="w-12 h-12 flex items-center justify-center bg-red-500 rounded-lg shadow-lg">
                     <Truck className="w-6 h-6 text-white" />
                   </div>
@@ -113,7 +118,10 @@ export default function ShipownerPage() {
                 </Card>
 
                 {/* Ongoing Drydock */}
-                <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+                <Card
+                  className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+                  onClick={() => router.push('/pages/shipowner/drydock-operation')}
+                >
                   <div className="w-12 h-12 flex items-center justify-center bg-green-500 rounded-lg shadow-lg">
                     <Wrench className="w-6 h-6 text-white" />
                   </div>
@@ -125,7 +133,10 @@ export default function ShipownerPage() {
                 </Card>
 
                 {/* Vessel Recertification */}
-                <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+                <Card
+                  className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+                  onClick={() => router.push('/pages/shipowner/recertifications')}
+                >
                   <div className="w-12 h-12 flex items-center justify-center bg-[#FF6C0C] rounded-lg shadow-lg">
                     <RefreshCw className="w-6 h-6 text-white" />
                   </div>
@@ -137,7 +148,10 @@ export default function ShipownerPage() {
                 </Card>
 
                 {/* Expiring Soon */}
-                <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+                <Card
+                  className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+                  onClick={() => router.push('/pages/shipowner/vessel-management')}
+                >
                   <div className="w-12 h-12 flex items-center justify-center bg-[#134686] rounded-lg shadow-lg">
                     <Calendar className="w-6 h-6 text-white" />
                   </div>

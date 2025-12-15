@@ -50,10 +50,11 @@ export async function GET(request: NextRequest) {
         }
       }),
 
-      // Expiring Soon - count of vessels with certifications expiring within 90 days
+      // Expiring Soon - count of vessels with certifications expiring within 1 year
       (async () => {
         const now = new Date()
-        const ninetyDaysFromNow = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+        const oneYearFromNow = new Date(now)
+        oneYearFromNow.setFullYear(now.getFullYear() + 1)
         
         return prisma.shipVessel.count({
           where: {
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
             vesselCertificationExpiry: {
               not: null,
               gte: now,
-              lte: ninetyDaysFromNow
+              lte: oneYearFromNow
             }
           }
         })
@@ -71,7 +72,8 @@ export async function GET(request: NextRequest) {
       // Vessel Certificate Expirations - get vessels with upcoming expirations
       (async () => {
         const now = new Date()
-        const ninetyDaysFromNow = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+        const oneYearFromNow = new Date(now)
+        oneYearFromNow.setFullYear(now.getFullYear() + 1)
         
         return prisma.shipVessel.findMany({
           where: {
@@ -80,7 +82,7 @@ export async function GET(request: NextRequest) {
             vesselCertificationExpiry: {
               not: null,
               gte: now,
-              lte: ninetyDaysFromNow
+              lte: oneYearFromNow
             }
           },
           select: {

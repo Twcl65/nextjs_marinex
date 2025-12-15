@@ -54,6 +54,9 @@ interface BookedShipyard {
   drydockRequestId: string;
 }
 
+const shipTypeOptions = ['Cargo Ship', 'Tanker', 'Container Ship', 'Bulk Carrier', 'Passenger Ship', 'Fishing Vessel', 'Tugboat'];
+const flagOptions = ['USA', 'Panama', 'Liberia', 'Marshall Islands', 'Singapore', 'Hong Kong', 'Greece', 'China', 'Japan', 'Philippines'];
+
 // ShipyardLogo component to handle S3 signed URLs
 function ShipyardLogo({ logoUrl, shipyardName }: { logoUrl: string; shipyardName: string }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
@@ -264,8 +267,8 @@ export default function DrydockManagementPage() {
     companyName: '',
     imoNumber: '',
     vesselName: '',
-    flag: '',
-    shipType: '',
+    flag: 'Philippines',
+    shipType: 'Cargo Ship',
     priorityLevel: 'Normal' as 'Normal' | 'Emergency',
     servicesNeeded: [] as string[],
     scopeOfWork: null as File | null,
@@ -566,8 +569,8 @@ export default function DrydockManagementPage() {
       companyName: user?.fullName || '',
       imoNumber: vessel.imoNumber,
       vesselName: vessel.name,
-      flag: vessel.flag || '',
-      shipType: vessel.shipType || '',
+      flag: vessel.flag || 'Philippines',
+      shipType: vessel.shipType || 'Cargo Ship',
       vesselImageUrl: vessel.vesselImageUrl || ''
     }))
   }
@@ -712,8 +715,8 @@ export default function DrydockManagementPage() {
           companyName: '',
           imoNumber: '',
           vesselName: '',
-          flag: '',
-          shipType: '',
+          flag: 'Philippines',
+          shipType: 'Cargo Ship',
           priorityLevel: 'Normal',
           servicesNeeded: [],
           scopeOfWork: null,
@@ -1584,18 +1587,26 @@ export default function DrydockManagementPage() {
                     </SelectTrigger>
                     <SelectContent className="cursor-pointer bg-white border-gray-300">
                       {vessels.map((vessel) => {
+                        const requestsForVessel = drydockRequests
+                          .filter(r => r.vesselId === vessel.id)
+                          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                        
+                        const latestRequest = requestsForVessel.length > 0 ? requestsForVessel[0] : null;
+                        
+                        const isDisabled = !!(latestRequest && latestRequest.status !== 'COMPLETED');
+
                         return (
                           <SelectItem
                             key={vessel.id}
                             value={vessel.id.toString()}
-                            disabled={vessel.lastDrydockDate !== undefined}
-                            className={`bg-white hover:bg-gray-50 ${vessel.lastDrydockDate !== undefined ? "opacity-50 cursor-not-allowed" : ""}`}
+                            disabled={isDisabled}
+                            className={`bg-white hover:bg-gray-50 ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
                           >
                             <div className="flex items-center justify-between w-full">
                               <span>{vessel.name} - IMO: {vessel.imoNumber}</span>
-                              {vessel.lastDrydockDate && (
+                              {isDisabled && latestRequest && (
                                 <span className="ml-2 text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded-full font-medium">
-                                  Already drydock last {vessel.lastDrydockDate}
+                                  Request Status: {latestRequest.status.charAt(0).toUpperCase() + latestRequest.status.slice(1).toLowerCase()}
                                 </span>
                               )}
                             </div>
@@ -1616,7 +1627,7 @@ export default function DrydockManagementPage() {
               </div>
 
               {/* Drydock Request Form (only if vessel selected) */}
-              {form.vesselId && (
+              {true && (
                 <form className="space-y-6 mt-6 bg-white">
                   {/* Form Fields - 2 inputs per row */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1652,22 +1663,36 @@ export default function DrydockManagementPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="flag">Flag</Label>
-                      <Input
-                        id="flag"
+                      <Select
                         value={form.flag}
-                        onChange={(e) => setForm(prev => ({ ...prev, flag: e.target.value }))}
-                        placeholder="Flag"
-                      />
+                        onValueChange={(value) => setForm(prev => ({ ...prev, flag: value }))}
+                      >
+                        <SelectTrigger className="bg-white border-gray-300">
+                          <SelectValue placeholder="Select a flag" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-300">
+                          {flagOptions.map(option => (
+                            <SelectItem key={option} value={option} className="bg-white hover:bg-gray-50">{option}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       {formErrors.flag && <p className="text-red-500 text-xs mt-1">{formErrors.flag}</p>}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="shipType">Type of Ship</Label>
-                      <Input
-                        id="shipType"
+                      <Select
                         value={form.shipType}
-                        onChange={(e) => setForm(prev => ({ ...prev, shipType: e.target.value }))}
-                        placeholder="Ship type"
-                      />
+                        onValueChange={(value) => setForm(prev => ({ ...prev, shipType: value }))}
+                      >
+                        <SelectTrigger className="bg-white border-gray-300">
+                          <SelectValue placeholder="Select ship type" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-300">
+                          {shipTypeOptions.map(option => (
+                            <SelectItem key={option} value={option} className="bg-white hover:bg-gray-50">{option}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       {formErrors.shipType && <p className="text-red-500 text-xs mt-1">{formErrors.shipType}</p>}
                     </div>
                     <div className="space-y-2">

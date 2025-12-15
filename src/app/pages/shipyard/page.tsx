@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { ShipyardSidebar } from "@/components/shipyard-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppHeader } from "@/components/AppHeader"
@@ -19,6 +20,7 @@ import {
 
 export default function ShipyardPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [dashboardData, setDashboardData] = useState({
     drydockBid: 0,
     confirmedBooking: 0,
@@ -102,7 +104,10 @@ export default function ShipyardPage() {
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 px-5">
             {/* Drydock Bid - with icon background #134686 */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/shipyard/bid-drydock')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-red-500 rounded-lg shadow-lg">
                 <Wrench className="w-6 h-6 text-white" />
               </div>
@@ -114,7 +119,10 @@ export default function ShipyardPage() {
             </Card>
 
             {/* Confirmed Booking */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/shipyard/view-bookings')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-green-500 rounded-lg shadow-lg">
                 <CheckCircle className="w-6 h-6 text-white" />
               </div>
@@ -126,7 +134,10 @@ export default function ShipyardPage() {
             </Card>
 
             {/* Drydock Operation */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/shipyard/drydock-operations')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-[#FF6C0C] rounded-lg shadow-lg">
                 <Wrench className="w-6 h-6 text-white" />
               </div>
@@ -138,7 +149,10 @@ export default function ShipyardPage() {
             </Card>
 
             {/* Total Documents */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/shipyard/manage-documents')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-[#134686] rounded-lg shadow-lg">
                 <FileText className="w-6 h-6 text-white" />
               </div>

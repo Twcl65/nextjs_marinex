@@ -39,3 +39,35 @@ export async function sendPasswordResetEmail(email: string, url: string) {
     throw new Error('Failed to send password reset email.');
   }
 }
+
+export async function sendNotificationEmail(email: string, subject: string, htmlMessage: string) {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    const errorMessage = 'Email credentials (EMAIL_USER and EMAIL_PASS) are not set in your .env.local file. Please add them to enable email sending.';
+    console.error(errorMessage);
+    // Don't throw an error, just log it, so the rest of the process can continue
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  const mailOptions = {
+    from: `"Marinex" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: subject,
+    html: htmlMessage, // Use html instead of text for better formatting
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Notification email sent: %s', info.messageId);
+  } catch (error) {
+    console.error('Error sending notification email:', error);
+    // We don't want to block the main API response if email fails
+  }
+}

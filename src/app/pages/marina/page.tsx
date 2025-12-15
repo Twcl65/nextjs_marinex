@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { MarinaSidebar } from "@/components/marina-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppHeader } from "@/components/AppHeader"
@@ -31,6 +32,7 @@ import {
 
 export default function MarinaPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [dashboardData, setDashboardData] = useState({
     authorityApprovals: 0,
     shipyardBidding: 0,
@@ -163,7 +165,10 @@ export default function MarinaPage() {
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 px-5">
             {/* Authority Approvals */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card 
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/marina/authority-approvals')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-black rounded-lg shadow-lg">
                 <Stamp className="w-6 h-6 text-white" />
               </div>
@@ -175,7 +180,10 @@ export default function MarinaPage() {
             </Card>
 
             {/* Shipyard Bidding */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card 
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/marina/shipyard-bidding')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-green-500 rounded-lg shadow-lg">
                 <Gavel className="w-6 h-6 text-white" />
               </div>
@@ -187,7 +195,10 @@ export default function MarinaPage() {
             </Card>
 
             {/* Monitor Certifications */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card 
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/marina/monitor-certifications')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-red-500 rounded-lg shadow-lg">
                 <BadgeCheck className="w-6 h-6 text-white" />
               </div>
@@ -199,7 +210,10 @@ export default function MarinaPage() {
             </Card>
 
             {/* Vessel Recertifications */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card 
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/marina/vessel-recertifications')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-[#FF6C0C] rounded-lg shadow-lg">
                 <RefreshCcw className="w-6 h-6 text-white" />
               </div>
@@ -215,7 +229,10 @@ export default function MarinaPage() {
           {/* Second Row Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 px-5">
             {/* Manage Users */}
-            <Card className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200">
+            <Card 
+              className="flex flex-row items-center gap-4 h-20 w-full p-4 border border-gray-200 bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+              onClick={() => router.push('/pages/marina/manage-users')}
+            >
               <div className="w-12 h-12 flex items-center justify-center bg-[#134686] rounded-lg shadow-lg">
                 <Users className="w-6 h-6 text-white" />
               </div>

@@ -97,6 +97,32 @@ export default function AuthorityApprovalsPage() {
     }
   }, [statusFilter, toast])
 
+  const handleViewFile = async (fileUrl: string | undefined) => {
+    if (!fileUrl) {
+        toast({
+            title: "File Not Available",
+            description: "The requested file does not exist.",
+            variant: "destructive"
+        });
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/view-certificate?url=${encodeURIComponent(fileUrl)}`);
+        if (!response.ok) throw new Error('Failed to generate signed URL');
+        const data = await response.json();
+        if (!data.signedUrl) throw new Error('Missing signed URL');
+        window.open(data.signedUrl, '_blank');
+    } catch (error) {
+        console.error('Error opening certificate:', error);
+        toast({
+            title: "Error",
+            description: "Failed to access certificate",
+            variant: "destructive"
+        });
+    }
+  };
+
   useEffect(() => {
     fetchAuthorityRequests()
   }, [fetchAuthorityRequests])
@@ -552,8 +578,8 @@ export default function AuthorityApprovalsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(selectedRequest.finalScopeOfWorkUrl, '_blank')}
-                      className="mt-1"
+                      onClick={() => handleViewFile(selectedRequest.finalScopeOfWorkUrl)}
+                      className="mt-1 border-blue-500 text-blue-500 hover:bg-blue-50 hover:text-blue-600"
                     >
                       <FileText className="h-4 w-4 mr-1" />
                       View Document
