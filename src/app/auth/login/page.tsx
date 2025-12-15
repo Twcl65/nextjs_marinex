@@ -20,6 +20,7 @@ export default function LoginPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const { user, login, isLoading: authLoading } = useAuth();
@@ -103,6 +104,8 @@ export default function LoginPage() {
     }
   };
 
+  
+
   return (
     <div className="min-h-screen flex items-center justify-center py-10 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       <div 
@@ -112,10 +115,10 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm sm:max-w-md shadow-xl border-0 bg-white backdrop-blur-sm relative z-10">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-xl sm:text-2xl font-bold text-[#134686]">
-            Welcome back
+            {'Welcome back'}
           </CardTitle>
           <CardDescription className="text-sm sm:text-base text-[#134686]/80">
-            Sign in to your account to continue
+            {'Sign in to your account to continue'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -187,8 +190,8 @@ export default function LoginPage() {
                 </Label>
               </div>
               <Link
-                href="#"
-                className="text-sm text-[#134686] hover:text-[#0f3a6e] hover:underline"
+                href="/auth/forgot-password"
+                className="text-sm text-[#134686] hover:text-[#0f3a6e] hover:underline focus:outline-none"
               >
                 Forgot password?
               </Link>

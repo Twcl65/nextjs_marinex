@@ -3,12 +3,10 @@ import nodemailer from 'nodemailer'
 
 // Initialize Nodemailer transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: Number(process.env.SMTP_PORT) === 465, // true for 465, false for other ports
+  service: 'gmail',
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 })
 
@@ -251,7 +249,7 @@ export async function POST(request: Request) {
 
     // Prepare the email
     const mailOptions = {
-      from: process.env.SMTP_FROM_EMAIL || 'noreply@example.com',
+      from: `"Marinex" <${process.env.EMAIL_USER}>`,
       to: to,
       subject: subject,
       html: htmlMessage,
@@ -260,7 +258,7 @@ export async function POST(request: Request) {
 
     console.log('Sending email with options:', mailOptions)
 
-    // Send the email
+    // Send the.
     const result = await transporter.sendMail(mailOptions)
     
     console.log('Email sent successfully:', result.messageId)
