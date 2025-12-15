@@ -75,10 +75,6 @@ export default function ManageDocumentsPage() {
     description: '',
     documentFile: null as File | null
   })
-  const [deleteMode, setDeleteMode] = useState(false)
-  const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
-  const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchVessels = useCallback(async () => {
     if (!token) {
@@ -216,8 +212,6 @@ export default function ManageDocumentsPage() {
   const handleViewDocuments = (vessel: Vessel) => {
     setSelectedVessel(vessel)
     setShowDocumentsModal(true)
-    setDeleteMode(false)
-    setSelectedDocuments(new Set())
     fetchDocuments(vessel.id)
   }
 
@@ -376,89 +370,6 @@ export default function ManageDocumentsPage() {
       hour: '2-digit',
       minute: '2-digit'
     })
-  }
-
-  const handleToggleDeleteMode = () => {
-    setDeleteMode(!deleteMode)
-    setSelectedDocuments(new Set())
-  }
-
-  const handleToggleDocumentSelection = (documentId: string) => {
-    const newSelected = new Set(selectedDocuments)
-    if (newSelected.has(documentId)) {
-      newSelected.delete(documentId)
-    } else {
-      newSelected.add(documentId)
-    }
-    setSelectedDocuments(newSelected)
-  }
-
-  const handleDeleteDocuments = async () => {
-    if (selectedDocuments.size === 0) {
-      toast({
-        variant: "destructive",
-        title: "No Selection",
-        description: "Please select at least one document to delete",
-      })
-      return
-    }
-
-    setIsDeleting(true)
-    try {
-      if (!token) {
-        toast({
-          variant: "destructive",
-          title: "Authentication Required",
-          description: "You must be logged in to delete documents",
-        })
-        return
-      }
-
-      const deletePromises = Array.from(selectedDocuments).map(async (documentId) => {
-        const response = await fetch(`/api/shipowner/vessel-documents?documentId=${documentId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.error || 'Failed to delete document')
-        }
-
-        return response.json()
-      })
-
-      await Promise.all(deletePromises)
-
-      toast({
-        variant: "default",
-        title: "Success",
-        description: `Successfully deleted ${selectedDocuments.size} document(s)`,
-      })
-
-      // Refresh documents list
-      if (selectedVessel) {
-        fetchDocuments(selectedVessel.id)
-      }
-      // Refresh vessels list to update document count
-      fetchVessels()
-
-      // Reset delete mode
-      setDeleteMode(false)
-      setSelectedDocuments(new Set())
-      setShowDeleteConfirmDialog(false)
-    } catch (error) {
-      console.error('Error deleting documents:', error)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete documents. Please try again.",
-      })
-    } finally {
-      setIsDeleting(false)
-    }
   }
 
   // Filter and search functions
@@ -640,14 +551,7 @@ export default function ManageDocumentsPage() {
         </div>
 
         {/* Documents Modal */}
-        <Dialog open={showDocumentsModal} onOpenChange={(open) => {
-          setShowDocumentsModal(open)
-          if (!open) {
-            // Reset delete mode when closing modal
-            setDeleteMode(false)
-            setSelectedDocuments(new Set())
-          }
-        }}>
+        <Dialog open={showDocumentsModal} onOpenChange={setShowDocumentsModal}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-xl font-bold text-[#134686]">
@@ -667,15 +571,6 @@ export default function ManageDocumentsPage() {
                     <Plus className="h-4 w-4" />
                     Add Document
                   </Button>
-                  <Button
-                    onClick={handleToggleDeleteMode}
-                    className="gap-2 bg-red-600 hover:bg-red-700 text-white cursor-pointer"
-                    variant="default"
-                    size="sm"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {deleteMode ? 'Cancel' : ''}
-                  </Button>
                 </div>
               )}
             </DialogHeader>
@@ -691,38 +586,12 @@ export default function ManageDocumentsPage() {
               </div>
             ) : (
               <div className="space-y-4 mt-2">
-                {deleteMode && selectedDocuments.size > 0 && (
-                  <div className="flex items-center justify-between mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <span className="text-sm text-red-700 font-medium">
-                      {selectedDocuments.size} document(s) selected
-                    </span>
-                    <Button
-                      onClick={() => setShowDeleteConfirmDialog(true)}
-                      className="gap-2 bg-red-600 hover:bg-red-700 text-white"
-                      size="sm"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Delete Selected
-                    </Button>
-                  </div>
-                )}
                 {documents.map((document) => (
                   <div
                     key={document.id}
-                    className={`border rounded-lg p-4 transition-colors ${
-                      deleteMode && selectedDocuments.has(document.id)
-                        ? 'border-red-500 bg-red-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
+                    className={'border-gray-200 hover:bg-gray-50 border rounded-lg p-4 transition-colors'}
                   >
                     <div className="flex items-start justify-between gap-4">
-                      {deleteMode && (
-                        <Checkbox
-                          checked={selectedDocuments.has(document.id)}
-                          onCheckedChange={() => handleToggleDocumentSelection(document.id)}
-                          className="mt-1"
-                        />
-                      )}
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           <FileText className="h-5 w-5 text-gray-500" />
@@ -731,10 +600,10 @@ export default function ManageDocumentsPage() {
                             {document.documentType}
                           </Badge>
                           {document.status && (
-                            <Badge 
+                            <Badge
                               className={
-                                document.status === 'new' 
-                                  ? 'bg-green-100 text-green-800 border-green-200' 
+                                document.status === 'new'
+                                  ? 'bg-green-100 text-green-800 border-green-200'
                                   : 'bg-gray-100 text-gray-800 border-gray-200'
                               }
                             >
@@ -742,7 +611,7 @@ export default function ManageDocumentsPage() {
                             </Badge>
                           )}
                         </div>
-                        
+
                         {document.description && (
                           <p className="text-sm text-gray-600 mb-2">{document.description}</p>
                         )}
@@ -757,38 +626,36 @@ export default function ManageDocumentsPage() {
                         </div>
                       </div>
 
-                      {!deleteMode && (
-                        <div className="flex items-center gap-2">
-                          {document.documentUrl ? (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="default"
-                                onClick={() => handleDownloadDocument(document)}
-                                className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
-                              >
-                                <Download className="h-4 w-4" />
-                                Download
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="default"
-                                onClick={() => {
-                                  handleDownloadDocument(document)
-                                }}
-                                className="gap-2 bg-gray-800 hover:bg-gray-900 text-white cursor-pointer"
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                                View
-                              </Button>
-                            </>
-                          ) : (
-                            <Badge variant="outline" className="text-sm">
-                              {document.isCertificate ? 'Processing Certificate...' : 'No File Available'}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {document.documentUrl ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => handleDownloadDocument(document)}
+                              className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                            >
+                              <Download className="h-4 w-4" />
+                              Download
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => {
+                                handleDownloadDocument(document)
+                              }}
+                              className="gap-2 bg-gray-800 hover:bg-gray-900 text-white cursor-pointer"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              View
+                            </Button>
+                          </>
+                        ) : (
+                          <Badge variant="outline" className="text-sm">
+                            {document.isCertificate ? 'Processing Certificate...' : 'No File Available'}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -797,35 +664,7 @@ export default function ManageDocumentsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Delete Confirmation Dialog */}
-        <Dialog open={showDeleteConfirmDialog} onOpenChange={setShowDeleteConfirmDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Confirm Deletion</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to delete {selectedDocuments.size} selected document(s)? This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setShowDeleteConfirmDialog(false)}
-                disabled={isDeleting}
-                className="bg-gray-600 hover:bg-gray-700 text-white border-gray-600 cursor-pointer"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="default"
-                onClick={handleDeleteDocuments}
-                disabled={isDeleting}
-                className="gap-2 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
-              >
-                {isDeleting ? 'Deleting...' : 'Yes, Delete'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
 
         {/* Add Document Dialog */}
         <Dialog open={showAddDocumentModal} onOpenChange={(open) => {
