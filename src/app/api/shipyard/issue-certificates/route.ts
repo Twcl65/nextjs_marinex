@@ -643,8 +643,16 @@ export async function POST(req: NextRequest) {
       certificatesToIssue.push({ name: 'Drydock Certificate', type: 'DRYDOCK_CERTIFICATE' })
     }
 
+    interface ProcessedCertificate {
+      id: string;
+      name: string;
+      type: string;
+      url: string;
+      issuedDate: Date;
+    }
+
     // Prepare to process certificates
-    const processedCertificates = []
+    const processedCertificates: ProcessedCertificate[] = []
 
     for (const cert of certificatesToIssue) {
       const certificateId = crypto.randomUUID()
