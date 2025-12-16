@@ -230,6 +230,10 @@ export async function POST(request: NextRequest) {
           where: { id: recertification.vesselId },
           data: {
             vesselCertificationExpiry: newExpiryDate,
+            vesselCertificationUrl: baseUrl,
+            vesselPlansUrl: recertification.vesselPlansUrl,
+            drydockCertificateUrl: recertification.drydockCertificateUrl,
+            safetyCertificateUrl: recertification.safetyCertificateUrl,
             updatedAt: new Date()
           }
         })

@@ -643,96 +643,62 @@ export async function POST(req: NextRequest) {
       certificatesToIssue.push({ name: 'Drydock Certificate', type: 'DRYDOCK_CERTIFICATE' })
     }
 
-    // Issue certificates in a transaction
-    const issuedCertificates = await prisma.$transaction(async (tx) => {
-      const certificates = []
-      
-      for (const cert of certificatesToIssue) {
-        const certificateId = crypto.randomUUID()
-        const now = new Date()
-        
-        // Handle Vessel Plans (uploaded file) vs other certificates (generated PDF)
-        let certificateUrl: string | null = null
-        try {
-          if (cert.type === 'VESSEL_PLANS' && vesselPlansFile) {
-            // Upload the provided file for Vessel Plans
-            console.log(`Uploading file for ${cert.name}...`)
-            certificateUrl = await uploadFileToS3(vesselPlansFile, certificateId, cert.name)
-            console.log(`File uploaded successfully. URL: ${certificateUrl}`)
-          } else {
-            // Generate PDF certificate for other types
-            console.log(`Generating PDF for ${cert.name}...`)
-            const pdfBuffer = await generateCertificatePDF(
-              cert.name,
-              booking.vesselName,
-              booking.imoNumber,
-              vessel.user.fullName || vessel.user.email || 'Shipowner',
-              now,
-              shipyardName,
-              {
-                shipType: vessel.shipType,
-                flag: vessel.flag,
-                distinctiveNumber: 'THS'
-              },
-              servicesWithArea
-            )
-            
-            console.log(`Uploading PDF to S3 for ${cert.name}...`)
-            certificateUrl = await uploadCertificateToS3(pdfBuffer, certificateId, cert.name)
-            console.log(`PDF uploaded successfully. URL: ${certificateUrl}`)
-          }
-        } catch (error) {
-          console.error(`Error processing certificate for ${cert.name}:`, error)
-          throw new Error(`Failed to process certificate for ${cert.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
-        }
-        
-        if (!certificateUrl) {
-          throw new Error(`Certificate URL is null for ${cert.name} after processing`)
-        }
-        
-        // Use raw SQL with proper column names (matching the migration)
-        // Ensure certificateUrl is properly saved
-        await tx.$executeRaw`
-          INSERT INTO drydock_issued_certificates (
-            id, drydockBookingId, vesselId, userId, certificateName, 
-            certificateType, certificateUrl, issuedDate, createdAt, updatedAt
-          ) VALUES (
-            ${certificateId}, ${bookingId}, ${booking.vesselId}, ${booking.userId},
-            ${cert.name}, ${cert.type}, ${certificateUrl}, ${now}, ${now}, ${now}
-          )
-        `
-        
-        // Verify the certificate was saved with URL
-        const savedCert = await tx.$queryRaw<Array<{
-          id: string
-          certificateUrl: string | null
-        }>>`
-          SELECT id, certificateUrl 
-          FROM drydock_issued_certificates 
-          WHERE id = ${certificateId}
-          LIMIT 1
-        `
-        
-        if (!savedCert || savedCert.length === 0 || !savedCert[0].certificateUrl) {
-          throw new Error(`Failed to save certificate URL for ${cert.name}`)
-        }
-        
-        certificates.push({
-          id: certificateId,
-          name: cert.name,
-          type: cert.type,
-          url: savedCert[0].certificateUrl
-        })
-      }
-      
-      return certificates
-    })
+    // Prepare to process certificates
+    const processedCertificates = []
 
-    // Create notification
+    for (const cert of certificatesToIssue) {
+      const certificateId = crypto.randomUUID()
+      const now = new Date()
+      let certificateUrl: string | null = null
+
+      try {
+        if (cert.type === 'VESSEL_PLANS' && vesselPlansFile) {
+          console.log(`Uploading file for ${cert.name}...`)
+          certificateUrl = await uploadFileToS3(vesselPlansFile, certificateId, cert.name)
+          console.log(`File uploaded successfully. URL: ${certificateUrl}`)
+        } else {
+          console.log(`Generating PDF for ${cert.name}...`)
+          const pdfBuffer = await generateCertificatePDF(
+            cert.name,
+            booking.vesselName,
+            booking.imoNumber,
+            vessel.user.fullName || vessel.user.email || 'Shipowner',
+            now,
+            shipyardName,
+            {
+              shipType: vessel.shipType,
+              flag: vessel.flag,
+              distinctiveNumber: 'THS'
+            },
+            servicesWithArea
+          )
+
+          console.log(`Uploading PDF to S3 for ${cert.name}...`)
+          certificateUrl = await uploadCertificateToS3(pdfBuffer, certificateId, cert.name)
+          console.log(`PDF uploaded successfully. URL: ${certificateUrl}`)
+        }
+      } catch (error) {
+        console.error(`Error processing certificate for ${cert.name}:`, error)
+        throw new Error(`Failed to process certificate for ${cert.name}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+
+      if (!certificateUrl) {
+        throw new Error(`Certificate URL is null for ${cert.name} after processing`)
+      }
+
+      processedCertificates.push({
+        id: certificateId,
+        name: cert.name,
+        type: cert.type,
+        url: certificateUrl,
+        issuedDate: now,
+      })
+    }
+
+    // Create notification message content
     const companyName = vessel.user.fullName || vessel.user.email || 'Shipowner'
     const vesselName = vessel.vesselName || 'Vessel'
-    
-    const certificatesList = certificatesToIssue.map((cert, index) => 
+    const certificatesList = processedCertificates.map((cert, index) => 
       `${index + 1}. ${cert.name}`
     ).join('\n\n')
 
@@ -752,39 +718,57 @@ Thank you for choosing our services.
 
 Best regards,
 **Marinex Platform**`
-
-    // Create notification
     const notificationId = crypto.randomUUID()
-    
-    await prisma.$executeRaw`
-      INSERT INTO drydock_mc_notifications (
-        id, userId, vesselId, drydockReport, drydockCertificate, 
-        safetyCertificate, vesselPlans, title, type, message, 
-        isRead, createdAt, updatedAt
-      ) VALUES (
-        ${notificationId}, ${booking.userId}, ${booking.vesselId}, 
-        ${drydockReport ? 1 : 0}, ${drydockCertificate ? 1 : 0}, 
-        0, ${vesselPlans ? 1 : 0},
-        'Drydock Completion - Certificates Issued', 'Drydock Completion',
-        ${notificationMessage}, 0, NOW(), NOW()
+
+    // Perform all database writes in a single transaction
+    const issuedCertificates = await prisma.$transaction(async (tx) => {
+      const certificateCreationPromises = processedCertificates.map(cert =>
+        tx.$executeRaw`
+          INSERT INTO drydock_issued_certificates (
+            id, drydockBookingId, vesselId, userId, certificateName, 
+            certificateType, certificateUrl, issuedDate, createdAt, updatedAt
+          ) VALUES (
+            ${cert.id}, ${bookingId}, ${booking.vesselId}, ${booking.userId},
+            ${cert.name}, ${cert.type}, ${cert.url}, ${cert.issuedDate}, ${cert.issuedDate}, ${cert.issuedDate}
+          )
+        `
       )
-    `
+      await Promise.all(certificateCreationPromises)
+      
+      // Create notification
+      await tx.$executeRaw`
+        INSERT INTO drydock_mc_notifications (
+          id, userId, vesselId, drydockReport, drydockCertificate, 
+          safetyCertificate, vesselPlans, title, type, message, 
+          isRead, createdAt, updatedAt
+        ) VALUES (
+          ${notificationId}, ${booking.userId}, ${booking.vesselId}, 
+          ${drydockReport ? 1 : 0}, ${drydockCertificate ? 1 : 0}, 
+          0, ${vesselPlans ? 1 : 0},
+          'Drydock Completion - Certificates Issued', 'Drydock Completion',
+          ${notificationMessage}, 0, NOW(), NOW()
+        )
+      `
 
-    // Update drydock_booking status to COMPLETED
-    await prisma.$executeRaw`
-      UPDATE drydock_bookings
-      SET status = 'COMPLETED', updatedAt = NOW()
-      WHERE id = ${bookingId}
-    `
+      // Update drydock_booking status to COMPLETED
+      await tx.$executeRaw`
+        UPDATE drydock_bookings
+        SET status = 'COMPLETED', updatedAt = NOW()
+        WHERE id = ${bookingId}
+      `
 
-    // Update drydock_request status to COMPLETED
-    await prisma.$executeRaw`
-      UPDATE drydock_requests
-      SET status = 'COMPLETED', updatedAt = NOW()
-      WHERE id = ${booking.drydockRequestId}
-    `
+      // Update drydock_request status to COMPLETED
+      await tx.$executeRaw`
+        UPDATE drydock_requests
+        SET status = 'COMPLETED', updatedAt = NOW()
+        WHERE id = ${booking.drydockRequestId}
+      `
+      
+      return processedCertificates
+    })
 
     console.log(`Updated drydock_booking ${bookingId} and drydock_request ${booking.drydockRequestId} status to COMPLETED`)
+
 
     return NextResponse.json({
       success: true,

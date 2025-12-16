@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
-import { writeFile } from 'fs/promises'
-import { join } from 'path'
 import crypto from 'crypto'
 import { logUserActivity, ActivityType } from '@/lib/activity-logger'
+import { uploadFileToS3 } from '@/lib/s3-upload'
 
 const prisma = new PrismaClient()
 
@@ -16,9 +15,9 @@ export async function POST(request: NextRequest) {
     const comment = (formData.get('comment') as string) || ''
     const image = formData.get('image') as File | null
 
-    if (!serviceId || !progress) {
+    if (!serviceId || isNaN(progress)) {
       return NextResponse.json(
-        { error: 'Missing required fields: serviceId, progress' },
+        { error: 'Missing or invalid required fields: serviceId, progress' },
         { status: 400 }
       )
     }
@@ -27,23 +26,20 @@ export async function POST(request: NextRequest) {
 
     // Handle image upload if provided
     if (image && image.size > 0) {
-      const bytes = await image.arrayBuffer()
-      const buffer = Buffer.from(bytes)
-      
-      // Create a unique filename
-      const timestamp = Date.now()
-      const filename = `progress-${serviceId}-${timestamp}.${image.name.split('.').pop()}`
-      const path = join(process.cwd(), 'public', 'uploads', 'progress', filename)
-      
-      // Ensure directory exists
-      const fs = await import('fs')
-      const dir = join(process.cwd(), 'public', 'uploads', 'progress')
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true })
+      console.log(`[Upload] Image found for service ${serviceId}, uploading to S3...`)
+      imageUrl = await uploadFileToS3({
+        file: image,
+        folder: 'progress',
+        prefix: `progress-${serviceId}`,
+      })
+      if (!imageUrl) {
+        console.error(`[Upload] S3 upload failed for service ${serviceId}`)
+        return NextResponse.json(
+          { error: 'Image upload failed' },
+          { status: 500 }
+        )
       }
-      
-      await writeFile(path, buffer)
-      imageUrl = `/uploads/progress/${filename}`
+      console.log(`[Upload] Image uploaded successfully: ${imageUrl}`)
     }
 
     // Determine progress level based on percentage
@@ -54,22 +50,27 @@ export async function POST(request: NextRequest) {
     else if (progress <= 75) progressLevel = 'Level 4'
     else progressLevel = 'Level 5'
 
-    // Create progress record
-    const progressRecord = await prisma.drydockProgress.create({
-      data: {
-        drydockServiceId: serviceId,
-        progressLevel,
-        progressPercent: progress,
-        comment: comment || null,
-        imageUrl,
-        updatedBy: 'shipyard-user' // You might want to get this from auth context
-      }
-    })
+    // Use a transaction to ensure data consistency
+    const result = await prisma.$transaction(async (tx) => {
+      // Create progress record
+      const progressRecord = await tx.drydockProgress.create({
+        data: {
+          drydockServiceId: serviceId,
+          progressLevel,
+          progressPercent: progress,
+          comment: comment || null,
+          imageUrl,
+          updatedBy: 'shipyard-user' // You might want to get this from auth context
+        }
+      })
 
-    // Update the service progress
-    await prisma.drydockService.update({
-      where: { id: serviceId },
-      data: { progress }
+      // Update the service progress
+      await tx.drydockService.update({
+        where: { id: serviceId },
+        data: { progress }
+      })
+      
+      return progressRecord
     })
 
     // Fetch booking and request information to send notification to shipowner
@@ -133,11 +134,8 @@ Best regards,
       `
 
       console.log('Shipowner notification created successfully:', notificationId)
-    }
-
-    // Log activity for shipyard user
-    if (serviceWithBooking && serviceWithBooking.length > 0) {
-      const serviceInfo = serviceWithBooking[0]
+      
+      // Log activity for shipyard user
       await logUserActivity(
         serviceInfo.shipyardUserId,
         ActivityType.PROGRESS_UPDATED,
@@ -155,7 +153,7 @@ Best regards,
 
     return NextResponse.json({
       success: true,
-      data: progressRecord,
+      data: result,
       message: 'Progress updated successfully'
     })
 
