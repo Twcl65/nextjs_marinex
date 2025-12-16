@@ -2,9 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import crypto from 'crypto'
 import { logUserActivity, ActivityType } from '@/lib/activity-logger'
-import { uploadFileToS3 } from '@/lib/s3-upload'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { nanoid } from 'nanoid'
 
 const prisma = new PrismaClient()
+
+const region = process.env.AWS_REGION as string
+const bucket = process.env.AWS_S3_BUCKET as string
+
+const s3 = new S3Client({ 
+  region, 
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
+  }
+})
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,18 +39,64 @@ export async function POST(request: NextRequest) {
     // Handle image upload if provided
     if (image && image.size > 0) {
       console.log(`[Upload] Image found for service ${serviceId}, uploading to S3...`)
-      imageUrl = await uploadFileToS3({
-        file: image,
-        folder: 'progress',
-        prefix: `progress-${serviceId}`,
-      })
-      if (!imageUrl) {
-        console.error(`[Upload] S3 upload failed for service ${serviceId}`)
-        return NextResponse.json(
-          { error: 'Image upload failed' },
-          { status: 500 }
-        )
+
+      if (!region || !bucket) {
+        return NextResponse.json({ error: 'S3 not configured' }, { status: 500 })
       }
+      
+      // Extract file extension from file name
+      const fileName = image.name
+      const parts = fileName.split('.')
+      const fileExtension = parts.length > 1 ? '.' + parts[parts.length - 1] : ''
+      
+      // Generate unique key
+      const key = `progress/${Date.now()}-${nanoid(8)}${fileExtension}`
+
+      // Convert file to buffer
+      const arrayBuffer = await image.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+
+      // Upload to S3
+      let uploadSuccess = false
+      let uploadError: Error | null = null
+      
+      try {
+        const cmd = new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: buffer,
+          ContentType: image.type || 'application/octet-stream',
+          ACL: 'public-read', // Try to make it public
+        })
+        await s3.send(cmd)
+        uploadSuccess = true
+        console.log('[Upload] File uploaded with public-read ACL')
+      } catch (aclError: unknown) {
+        console.warn('[Upload] ACL upload failed, trying without ACL:', aclError)
+        uploadError = aclError instanceof Error ? aclError : new Error('ACL upload failed')
+        
+        // Retry without ACL (bucket policy might handle public access)
+        try {
+          const cmd = new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: buffer,
+            ContentType: image.type || 'application/octet-stream',
+            // No ACL - rely on bucket policy
+          })
+          await s3.send(cmd)
+          uploadSuccess = true
+          console.log('[Upload] File uploaded without ACL (using bucket policy)')
+        } catch (noAclError: unknown) {
+          throw noAclError instanceof Error ? noAclError : new Error('Upload failed')
+        }
+      }
+      
+      if (!uploadSuccess) {
+        throw uploadError || new Error('Upload failed')
+      }
+      
+      imageUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`
       console.log(`[Upload] Image uploaded successfully: ${imageUrl}`)
     }
 
