@@ -351,7 +351,13 @@ export default function AuthorityApprovalsPage() {
                       </TableCell>
                         <TableCell className="py-3 text-left">
                           <span className="text-sm text-gray-900">
-                            {new Date(request.requestDate).toLocaleDateString()}
+                            {request.requestDate
+                              ? new Date(request.requestDate).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: '2-digit',
+                                })
+                              : ''}
                           </span>
                         </TableCell>
                         <TableCell className="py-3 text-center">

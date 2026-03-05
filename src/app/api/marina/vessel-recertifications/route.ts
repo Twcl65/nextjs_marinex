@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import jsPDF from 'jspdf'
+import QRCode from 'qrcode'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -175,8 +176,29 @@ export async function POST(request: NextRequest) {
           hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY
         })
 
-        // Generate certificate PDF
-        const certificateBuffer = await generateVesselCertificate(recertification)
+        const issueDate = new Date()
+        const expiryDate = new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000) // 5 years from now
+
+        // Generate human-readable certificate ID (e.g., VR-2026-ABC123)
+        const year = issueDate.getFullYear()
+        const idSuffix = recertification.id.slice(-6).toUpperCase()
+        const certificateId = `VR-${year}-${idSuffix}`
+
+        // Build verification URL for QR / manual entry (root verify page)
+        const appBaseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ||
+          process.env.APP_BASE_URL ||
+          'https://nextjs-marinex.vercel.app'
+        const verificationUrl = `${appBaseUrl.replace(/\/$/, '')}/verify`
+
+        // Generate certificate PDF (with QR + metadata)
+        const certificateBuffer = await generateVesselCertificate(
+          recertification,
+          certificateId,
+          verificationUrl,
+          issueDate,
+          expiryDate
+        )
         console.log('Certificate generated, size:', certificateBuffer.length)
 
         // Upload to S3 (with ACL fallback for buckets that don't allow ACLs)
@@ -206,14 +228,10 @@ export async function POST(request: NextRequest) {
           console.log(`[Recertification] Certificate uploaded without ACL (using bucket policy)`)
         }
 
-        // Base S3 URL (store unsiged; viewer will request signed URL on demand)
+        // Base S3 URL (store unsigned; viewer will request signed URL on demand)
         const region = process.env.AWS_REGION || 'ap-southeast-2'
         const baseUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${region}.amazonaws.com/certificates/${fileName}`
         console.log('Certificate uploaded to (base URL):', baseUrl)
-
-        // Calculate new expiry date (5 years from now)
-        const newExpiryDate = new Date()
-        newExpiryDate.setFullYear(newExpiryDate.getFullYear() + 5)
 
         // Update the recertification record and vessel certificate expiry
         const updatedRecertification = await prisma.drydockVesselRecertificate.update({
@@ -221,6 +239,10 @@ export async function POST(request: NextRequest) {
           data: {
             status: 'COMPLETED',
             vesselCertificateFile: baseUrl,
+            certificateId,
+            certificateIssuedAt: issueDate,
+            certificateExpiry: expiryDate,
+            certificateRevoked: false,
             updatedAt: new Date()
           }
         })
@@ -229,7 +251,7 @@ export async function POST(request: NextRequest) {
         await prisma.shipVessel.update({
           where: { id: recertification.vesselId },
           data: {
-            vesselCertificationExpiry: newExpiryDate,
+            vesselCertificationExpiry: expiryDate,
             vesselCertificationUrl: baseUrl,
             vesselPlansUrl: recertification.vesselPlansUrl,
             drydockCertificateUrl: recertification.drydockCertificateUrl,
@@ -239,7 +261,7 @@ export async function POST(request: NextRequest) {
         })
 
         console.log('Database updated successfully')
-        console.log(`Vessel certificate expiry updated to: ${newExpiryDate.toISOString()}`)
+        console.log(`Vessel certificate expiry updated to: ${expiryDate.toISOString()}`)
 
         // Send notification to shipowner
         try {
@@ -484,7 +506,13 @@ interface RecertificationData {
   } | null
 }
 
-async function generateVesselCertificate(recertification: RecertificationData): Promise<Buffer> {
+async function generateVesselCertificate(
+  recertification: RecertificationData,
+  certificateId: string,
+  verificationUrl: string,
+  issueDate: Date,
+  expiryDate: Date
+): Promise<Buffer> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
 
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -505,10 +533,7 @@ async function generateVesselCertificate(recertification: RecertificationData): 
 
   const safe = (value: string | number | undefined | null, fallback: string) =>
     value ? String(value) : fallback
-
-  const issueDate = new Date()
-  const expiryDate = new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000) // 5 years from now
-  const certificateNumber = `VRC-${recertification.id.slice(-8).toUpperCase()}`
+  const certificateNumber = certificateId
   const distinctiveNumber = 'THS'
   const portOfRegistry = String(Math.floor(10 + Math.random() * 90))
   const companyIdNumber = `BRN-${recertification.id.slice(-6).toUpperCase()}`
@@ -670,6 +695,46 @@ async function generateVesselCertificate(recertification: RecertificationData): 
   const month = monthNames[issueDate.getMonth()]
   const year = issueDate.getFullYear()
   doc.text(`Issued at MARINA Region - X, Cagayan de Oro City, Philippines, on the ${day} ${month} ${year}.`, margin, cursorY)
+
+  // Space for QR code and verification info above footer
+  cursorY += lineGap * 2
+
+  // Generate QR code for verification URL
+  try {
+    const qrDataUrl = await QRCode.toDataURL(verificationUrl, {
+      margin: 1,
+      width: 100,
+    })
+    // Place QR on the left
+    doc.addImage(qrDataUrl, 'PNG', margin, cursorY - 10, 90, 90)
+  } catch (err) {
+    console.error('Failed to generate QR code for certificate:', err)
+  }
+
+  // Verification text on the right of QR
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('CERTIFICATE ID:', margin + 110, cursorY + 5)
+  doc.setFont('helvetica', 'normal')
+  doc.text(certificateNumber, margin + 110, cursorY + 20)
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('VERIFY ONLINE:', margin + 110, cursorY + 40)
+  doc.setFont('helvetica', 'normal')
+  doc.text(
+    verificationUrl,
+    margin + 110,
+    cursorY + 55,
+    { maxWidth: 260 }
+  )
+
+  doc.setFontSize(9)
+  doc.text(
+    'Scan the QR code or visit the link above to validate this certificate directly with the Maritime Industry Authority.',
+    margin + 110,
+    cursorY + 75,
+    { maxWidth: 260 }
+  )
 
   // Footer with signature on right
   cursorY = 650

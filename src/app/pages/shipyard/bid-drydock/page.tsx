@@ -226,14 +226,22 @@ function getServicesWithArea(selectedRequest: DrydockRequest): Array<{name: stri
 }
 
 // VesselCard component for displaying drydock request cards
-function VesselCard({ request, onBidClick, hasUserBid }: { 
+function VesselCard({ request, onBidClick, hasUserBid, isRecommended }: { 
     request: DrydockRequest, 
     onBidClick: (request: DrydockRequest) => void,
-    hasUserBid: boolean
+    hasUserBid: boolean,
+    isRecommended?: boolean
 }) {
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [isLoadingImage, setIsLoadingImage] = useState(false);
     const [imageError, setImageError] = useState(false);
+
+    useEffect(() => {
+        // Debug: Log recommendation status (development only)
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`VesselCard - ${request.vessel?.name} (${request.id}): hasUserBid=${hasUserBid}, isRecommended=${isRecommended}`);
+        }
+    }, [request.id, hasUserBid, isRecommended]);
 
     useEffect(() => {
         // Reset states when vessel changes
@@ -244,7 +252,6 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
         const picture = request.vessel?.picture;
         if (picture) {
             setIsLoadingImage(true);
-            console.log('VesselCard - Loading image for', request.vessel?.name, ':', picture);
             
             // Check if it's an S3 URL - proactively get signed URL
             if (picture.includes('s3.amazonaws.com') || picture.includes('amazonaws.com')) {
@@ -253,15 +260,14 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                     .then(res => res.json())
                     .then(data => {
                         if (data.signedUrl) {
-                            console.log('VesselCard - Got signed URL for', request.vessel?.name);
                             setImageUrl(data.signedUrl);
                         } else {
-                            console.error('VesselCard - No signedUrl in response, trying direct URL');
+                            // Fallback to direct URL if signed URL not available
                             setImageUrl(picture);
                         }
                     })
-                    .catch(err => {
-                        console.error('VesselCard - Error fetching signed URL, trying direct URL:', err);
+                    .catch(() => {
+                        // Fallback to direct URL on error
                         setImageUrl(picture);
                     });
             } else {
@@ -279,10 +285,12 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
         return getServicesWithArea(selectedRequest).map((s: {name: string, area: number}) => s.name);
     }
 
+    const cardHeight = hasUserBid ? 360 : 330;
+
     return (
         <Card
             className="flex flex-col pb-0 shadow-md border border-gray-200 rounded-xl overflow-hidden p-0"
-            style={{ width: '260px', height: '330px' }}
+            style={{ width: '260px', height: `${cardHeight}px` }}
         >
             <div className="relative w-full h-[135px] flex-shrink-0 p-0 m-0 mb-0 pb-0">
                 {imageUrl && !imageError ? (
@@ -293,19 +301,21 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                         height={135}
                         className="w-full h-full object-cover rounded-t-xl"
                         onLoad={() => {
-                            console.log('VesselCard - Image loaded successfully for', request.vessel?.name);
                             setIsLoadingImage(false);
                             setImageError(false);
                         }}
                         onError={(e) => {
-                            console.error('VesselCard - Image failed to load for', request.vessel?.name, ':', imageUrl);
+                            // Silently handle image load failures - this is expected behavior
                             setImageError(true);
                             setIsLoadingImage(false);
                             
                             // If direct URL failed and we haven't tried signed URL yet, try it
                             const picture = request.vessel?.picture;
                             if (picture && imageUrl === picture && picture.includes('s3.amazonaws.com')) {
-                                console.log('VesselCard - Attempting to fetch signed URL as fallback for:', picture);
+                                // Only log in development mode
+                                if (process.env.NODE_ENV === 'development') {
+                                    console.log('VesselCard - Attempting to fetch signed URL as fallback for:', picture);
+                                }
                                 fetch(`/api/signed-url?url=${encodeURIComponent(picture)}`)
                                     .then(res => res.json())
                                     .then(data => {
@@ -315,8 +325,9 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                                             setImageError(false);
                                         }
                                     })
-                                    .catch(err => {
-                                        console.error('VesselCard - Error fetching signed URL:', err);
+                                    .catch(() => {
+                                        // Silently handle signed URL fetch failures
+                                        // Image will show placeholder instead
                                     });
                             }
                         }}
@@ -354,7 +365,11 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                     <div className="absolute bottom-2 right-2 z-10">
                         <Badge variant="secondary" className="shadow bg-yellow-500 text-white px-2 py-0.5 text-[10px] flex items-center gap-1">
                             <CalendarCheck className="w-3 h-3 mr-1" />
-                            {new Date(request.request_date).toLocaleDateString()}
+                            {new Date(request.request_date).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
+                            })}
                         </Badge>
                     </div>
                 )}
@@ -405,7 +420,18 @@ function VesselCard({ request, onBidClick, hasUserBid }: {
                     </div>
                 </div>
             </div>
-            <CardFooter className="w-full px-4 pb-4 pt-0 flex-shrink-0">
+            <CardFooter className="w-full px-4 pb-4 pt-0 flex-shrink-0 flex-col gap-2">
+                {hasUserBid && (
+                    <div className="w-full text-center">
+                        <span
+                            className={`text-sm font-bold ${
+                                isRecommended ? 'text-green-700' : 'text-black'
+                            }`}
+                        >
+                            {isRecommended ? 'RECOMMENDED' : 'NOT YET RECOMMENDED'}
+                        </span>
+                    </div>
+                )}
                 {hasUserBid ? (
                     <Button className="w-full h-8 text-sm truncate mt-auto cursor-not-allowed bg-green-500 hover:bg-green-500 text-white" disabled>
                         Bid Successfully!
@@ -446,6 +472,7 @@ export default function BidDrydockPage() {
     const [calculationResults, setCalculationResults] = useState<CalculationResults | null>(null);
     const [userBids, setUserBids] = useState<{ drydock_request_id: string }[]>([]);
     const [bidStatuses, setBidStatuses] = useState<{ [key: string]: boolean }>({});
+    const [bidRecommendations, setBidRecommendations] = useState<{ [key: string]: boolean }>({});
     const [shipyardServices, setShipyardServices] = useState<string[]>([]);
     const [shipyardServicesData, setShipyardServicesData] = useState<Array<{
         id: string;
@@ -491,20 +518,49 @@ export default function BidDrydockPage() {
         if (!iso) return 'TBD';
         const date = new Date(iso);
         if (isNaN(date.getTime())) return 'TBD';
-        return date.toLocaleDateString();
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: '2-digit',
+        });
     };
     const scheduleStartLabel = formatDisplayDate(scheduleDetails?.startDate);
     const scheduleEndLabel = formatDisplayDate(scheduleDetails?.endDate);
     const penaltyDescription = scheduleDetails?.penalties?.description;
     const bidPdfUrl = calculationResults?.bidDocumentUrl ?? bidDocumentUrl;
 
-    const handleRegenerateDocument = async () => {
-        if (!calculationResults) return;
+    const handleViewDocument = async () => {
+        if (!calculationResults && !bidPdfUrl) return;
         try {
             setIsGeneratingDocument(true);
-            const refreshedUrl = await generatePDF(calculationResults);
-            setBidDocumentUrl(refreshedUrl);
-            setCalculationResults(prev => prev ? { ...prev, bidDocumentUrl: refreshedUrl } : prev);
+            let url = bidPdfUrl;
+
+            // Generate the PDF if we don't have a URL yet
+            if (!url && calculationResults) {
+                url = await generatePDF(calculationResults);
+                setBidDocumentUrl(url);
+                setCalculationResults(prev => prev ? { ...prev, bidDocumentUrl: url } : prev);
+            }
+
+            if (!url) return;
+
+            // If the URL is on S3, fetch a signed URL before opening
+            let finalUrl = url;
+            if (url.includes('s3.amazonaws.com') || url.includes('amazonaws.com')) {
+                try {
+                    const res = await fetch(`/api/signed-url?url=${encodeURIComponent(url)}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.signedUrl) {
+                            finalUrl = data.signedUrl;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to get signed URL for bid document', e);
+                }
+            }
+
+            window.open(finalUrl, '_blank', 'noopener,noreferrer');
         } finally {
             setIsGeneratingDocument(false);
         }
@@ -616,7 +672,25 @@ export default function BidDrydockPage() {
                 const response = await fetch(`/api/shipyard/bid-statuses?userId=${user.id}`);
                 if (response.ok) {
                     const data = await response.json();
-                    setBidStatuses(data.bidStatuses || {});
+                    console.log('Fetched bid statuses:', data);
+                    
+                    // Ensure all keys are strings for consistent lookup
+                    const normalizedBidStatuses: { [key: string]: boolean } = {}
+                    const normalizedBidRecommendations: { [key: string]: boolean } = {}
+                    
+                    Object.keys(data.bidStatuses || {}).forEach(key => {
+                        normalizedBidStatuses[String(key)] = data.bidStatuses[key]
+                    })
+                    
+                    Object.keys(data.bidRecommendations || {}).forEach(key => {
+                        normalizedBidRecommendations[String(key)] = data.bidRecommendations[key]
+                    })
+                    
+                    setBidStatuses(normalizedBidStatuses);
+                    setBidRecommendations(normalizedBidRecommendations);
+                    console.log('Set normalized bidRecommendations:', normalizedBidRecommendations);
+                } else {
+                    console.error('Failed to fetch bid statuses:', response.status, response.statusText);
                 }
             } catch (error) {
                 console.error('Error fetching bid statuses:', error);
@@ -1214,7 +1288,7 @@ export default function BidDrydockPage() {
             { label: 'Ship Type:', value: selectedRequest?.vessel?.ship_type || 'N/A' },
             { label: 'Flag:', value: selectedRequest?.vessel?.flag || 'N/A' },
             { label: 'Requesting Company:', value: selectedRequest?.company_name || 'N/A' },
-            { label: 'Request Date:', value: selectedRequest?.request_date ? new Date(selectedRequest.request_date).toLocaleDateString() : 'N/A' },
+            { label: 'Request Date:', value: selectedRequest?.request_date ? new Date(selectedRequest.request_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: '2-digit' }) : 'N/A' },
         ];
 
         doc.setFontSize(10);
@@ -1553,6 +1627,7 @@ export default function BidDrydockPage() {
                                         setOpenDialog(true);
                                     }}
                                     hasUserBid={hasUserBid(request.id)}
+                                    isRecommended={bidRecommendations[String(request.id)] || false}
                                 />
                                 ))}
                         </div>
@@ -2017,10 +2092,10 @@ export default function BidDrydockPage() {
                                 <div className="flex flex-wrap gap-3">
                                     <Button
                                         className="bg-blue-600 hover:bg-blue-700 text-white"
-                                        onClick={handleRegenerateDocument}
-                                        disabled={isGeneratingDocument || !calculationResults}
+                                        onClick={handleViewDocument}
+                                        disabled={isGeneratingDocument || (!calculationResults && !bidPdfUrl)}
                                     >
-                                        {isGeneratingDocument ? 'Generating...' : 'Regenerate Document'}
+                                        {isGeneratingDocument ? 'Generating...' : 'View Document'}
                                     </Button>
                                 </div>
                             </div>
@@ -2206,7 +2281,15 @@ export default function BidDrydockPage() {
                                             <TableCell>{bid.vesselName}</TableCell>
                                             <TableCell>{bid.companyName}</TableCell>
                                             <TableCell>₱{bid.bidAmount.toLocaleString()}</TableCell>
-                                            <TableCell>{new Date(bid.bidDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</TableCell>
+                                            <TableCell>
+                                                {bid.bidDate
+                                                    ? new Date(bid.bidDate).toLocaleDateString('en-US', {
+                                                          year: 'numeric',
+                                                          month: 'long',
+                                                          day: '2-digit',
+                                                      })
+                                                    : ''}
+                                            </TableCell>
                                             <TableCell>
                                                 <Badge
                                                     variant={

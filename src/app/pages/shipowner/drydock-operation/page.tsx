@@ -136,6 +136,11 @@ export default function DrydockOperationPage() {
     comment?: string
     imageUrl?: string
     updatedAt: string
+    // Optional fields for schedule-change events (natural disaster reschedules)
+    eventType?: 'RESCHEDULE' | 'PROGRESS'
+    previousStartDate?: string
+    newStartDate?: string
+    disasterType?: string
   }>>([])
   const [loadingProgress, setLoadingProgress] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -829,37 +834,86 @@ export default function DrydockOperationPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {serviceProgressDetails.map((progress, idx) => (
-                      <div key={idx} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-[#134686] text-white rounded-full flex items-center justify-center text-sm font-bold">
-                              {idx + 1}
+                    {serviceProgressDetails.map((progress, idx) => {
+                      const isReschedule = progress.eventType === 'RESCHEDULE'
+
+                      const originalStartLabel =
+                        isReschedule && progress.previousStartDate
+                          ? new Date(progress.previousStartDate).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            })
+                          : null
+
+                      const newStartLabel =
+                        isReschedule && progress.newStartDate
+                          ? new Date(progress.newStartDate).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            })
+                          : null
+
+                      return (
+                        <div key={idx} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-[#134686] text-white rounded-full flex items-center justify-center text-sm font-bold">
+                                {idx + 1}
+                              </div>
+                              <div>
+                                <h3 className="font-semibold text-gray-900">
+                                  {isReschedule ? 'Schedule Change (Natural Disaster)' : 'Progress Update'}
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                  {new Date(progress.updatedAt).toLocaleDateString('en-US', {
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </p>
+                                {isReschedule && (
+                                  <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                                    {originalStartLabel && (
+                                      <p>Previous start date: <span className="font-semibold">{originalStartLabel}</span></p>
+                                    )}
+                                    {newStartLabel && (
+                                      <p>New start date: <span className="font-semibold">{newStartLabel}</span></p>
+                                    )}
+                                    {progress.disasterType && (
+                                      <p>Disaster type: <span className="font-semibold">{progress.disasterType}</span></p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <h3 className="font-semibold text-gray-900">Progress Update</h3>
-                              <p className="text-sm text-gray-500">
-                                {new Date(progress.updatedAt).toLocaleDateString('en-US', {
-                                  year: 'numeric',
-                                  month: 'long',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </p>
+                            <div className="text-right">
+                              {isReschedule ? (
+                                <>
+                                  <div className="text-sm font-semibold text-[#134686]">Schedule Updated</div>
+                                  <div className="text-xs text-gray-500 uppercase tracking-wide">
+                                    {progress.disasterType || progress.progressLevel}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-lg font-bold text-[#134686]">{progress.progressPercent}%</div>
+                                  <div className="text-xs text-gray-500 uppercase tracking-wide">
+                                    {progress.progressLevel}
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="text-lg font-bold text-[#134686]">{progress.progressPercent}%</div>
-                            <div className="text-xs text-gray-500 uppercase tracking-wide">
-                              {progress.progressLevel}
-                            </div>
-                          </div>
-                        </div>
                         
                         {progress.comment && (
                           <div className="mb-3">
-                            <h4 className="text-sm font-medium text-gray-700 mb-2">Comments:</h4>
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">
+                              {isReschedule ? 'Reschedule Details:' : 'Comments:'}
+                            </h4>
                             <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-md">
                               {progress.comment}
                             </p>
@@ -868,7 +922,9 @@ export default function DrydockOperationPage() {
                         
                         {progress.imageUrl && (
                           <div>
-                            <h4 className="text-sm font-medium text-gray-700 mb-2">Progress Image:</h4>
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">
+                              {isReschedule ? 'Supporting Picture:' : 'Progress Image:'}
+                            </h4>
                             <div className="relative">
                               <img 
                                 src={progress.imageUrl} 
@@ -884,12 +940,20 @@ export default function DrydockOperationPage() {
                         
                         <div className="mt-3 pt-3 border-t border-gray-100">
                           <div className="flex items-center justify-between text-xs text-gray-500">
-                            <span>Updated by: {currentShipyardName || previousBooking?.shipyard?.name || selectedBooking?.shipyard?.name || 'Shipyard'}</span>
-                            <span>Level: {progress.progressLevel}</span>
+                            <span>
+                              Updated by:{' '}
+                              {currentShipyardName ||
+                                previousBooking?.shipyard?.name ||
+                                selectedBooking?.shipyard?.name ||
+                                'Shipyard'}
+                            </span>
+                            <span>
+                              {isReschedule ? 'Event: Schedule Change (Natural Disaster)' : `Level: ${progress.progressLevel}`}
+                            </span>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>

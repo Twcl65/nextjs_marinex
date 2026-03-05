@@ -1430,6 +1430,8 @@ export default function DrydockManagementPage() {
                                     onClick={async () => {
                                       // Check if authority request already exists
                                       if (hasAuthorityRequest(request.id)) {
+                                        // Ensure the current request is selected so the dialog filters correctly
+                                        setSelectedDrydockRequest(request)
                                         // Show the table dialog if authority request exists
                                         setShowAuthorityApprovalDialog(true)
                                       } else {
@@ -2555,10 +2557,21 @@ export default function DrydockManagementPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {authorityRequests.map((request) => (
+                      {(selectedDrydockRequest
+                        ? authorityRequests.filter(
+                            (request) =>
+                              request.drydockRequest &&
+                              request.drydockRequest.id === selectedDrydockRequest.id
+                          )
+                        : authorityRequests
+                      ).map((request) => (
                         <TableRow key={request.id}>
                           <TableCell>
-                            {new Date(request.requestDate).toLocaleDateString()}
+                            {new Date(request.requestDate).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            })}
                           </TableCell>
                           <TableCell>
                             {request.drydockRequest?.vesselName || 'N/A'}

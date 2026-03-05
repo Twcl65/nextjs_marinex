@@ -566,7 +566,13 @@ export default function ShipyardBiddingPage() {
                                             </TableCell>
                                             <TableCell className="py-3">
                                                 <span className="text-sm text-gray-600">
-                                                    {request.request_date ? new Date(request.request_date).toLocaleDateString() : 'N/A'}
+                                                    {request.request_date
+                                                        ? new Date(request.request_date).toLocaleDateString('en-US', {
+                                                              year: 'numeric',
+                                                              month: 'long',
+                                                              day: '2-digit',
+                                                          })
+                                                        : 'N/A'}
                                                 </span>
                                             </TableCell>
                                             <TableCell className="py-3">
@@ -760,7 +766,14 @@ export default function ShipyardBiddingPage() {
                                                     
                                                     <div className="pt-0 border-t border-gray-100">
                                                         <span className="text-xs text-gray-500">
-                                                            Bid Date: {new Date(bidder.bid_date).toLocaleDateString()}
+                                                            Bid Date:{' '}
+                                                            {bidder.bid_date
+                                                                ? new Date(bidder.bid_date).toLocaleDateString('en-US', {
+                                                                      year: 'numeric',
+                                                                      month: 'long',
+                                                                      day: '2-digit',
+                                                                  })
+                                                                : 'N/A'}
                                                         </span>
                                                     </div>
                                                     

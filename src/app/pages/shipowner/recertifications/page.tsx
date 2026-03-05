@@ -252,10 +252,13 @@ export default function VesselRecertificationsPage() {
   }
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: '2-digit',
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return ''
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
       day: '2-digit',
-      year: 'numeric'
     })
   }
 

@@ -51,6 +51,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Get totalDays from the selected bid to compute end/arrival/departure dates
+    const bid = await prisma.drydockBid.findUnique({
+      where: { id: drydockBidId },
+      select: { totalDays: true },
+    })
+
+    const totalDays = bid?.totalDays ?? 0
+    const startDate = new Date()
+    const endDate = new Date(startDate.getTime() + totalDays * 24 * 60 * 60 * 1000)
+    const arrivalDate = new Date(startDate.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const departureDate = new Date(endDate.getTime() + 7 * 24 * 60 * 60 * 1000)
+
     let bookingId: string
     
     if (Array.isArray(existingBooking) && existingBooking.length > 0) {
@@ -60,7 +72,13 @@ export async function POST(req: NextRequest) {
       
       await prisma.$executeRaw`
         UPDATE drydock_bookings 
-        SET status = 'PENDING', bookingDate = NOW(), notes = ${notes || null}, updatedAt = NOW()
+        SET 
+          status = 'PENDING',
+          bookingDate = NOW(),
+          arrivalDate = ${arrivalDate},
+          departureDate = ${departureDate},
+          notes = ${notes || null},
+          updatedAt = NOW()
         WHERE id = ${bookingId}
       `
     } else {
@@ -70,10 +88,10 @@ export async function POST(req: NextRequest) {
       await prisma.$executeRaw`
         INSERT INTO drydock_bookings (
           id, drydockRequestId, drydockBidId, userId, shipyardUserId, 
-          status, bookingDate, notes, createdAt, updatedAt
+          status, bookingDate, arrivalDate, departureDate, notes, createdAt, updatedAt
         ) VALUES (
           ${bookingId}, ${drydockRequestId}, ${drydockBidId}, ${userId}, ${shipyardUserId},
-          'PENDING', NOW(), ${notes || null}, NOW(), NOW()
+          'PENDING', NOW(), ${arrivalDate}, ${departureDate}, ${notes || null}, NOW(), NOW()
         )
       `
     }

@@ -26,6 +26,8 @@ export async function GET(req: NextRequest) {
         db.shipyardUserId,
         db.status,
         db.bookingDate,
+        db.arrivalDate,
+        db.departureDate,
         db.notes,
         db.createdAt,
         db.updatedAt,
@@ -76,6 +78,8 @@ export async function GET(req: NextRequest) {
         shipyardUserId: string;
         status: string;
         bookingDate: Date;
+        arrivalDate: Date | null;
+        departureDate: Date | null;
         notes: string | null;
         createdAt: Date;
         updatedAt: Date;
@@ -112,6 +116,8 @@ export async function GET(req: NextRequest) {
         shipyardUserId: booking.shipyardUserId,
         status: booking.status,
         bookingDate: booking.bookingDate,
+        arrivalDate: booking.arrivalDate,
+        departureDate: booking.departureDate,
         notes: booking.notes,
         createdAt: booking.createdAt,
         updatedAt: booking.updatedAt,
@@ -164,6 +170,16 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
+    // This will hold data needed for activity logging after the transaction commits
+    let bookingForActivity:
+      | {
+          shipyardUserId: string
+          vesselId: string
+          vesselName: string
+          shipyardName: string
+        }
+      | null = null
+
     // Start a transaction to update both booking and drydock request
     const result = await prisma.$transaction(async (tx) => {
       // Update booking status
@@ -208,6 +224,14 @@ export async function PATCH(req: NextRequest) {
 
         if (bookingDetails && bookingDetails.length > 0) {
           const booking = bookingDetails[0]
+
+          // Capture minimal data for activity logging outside the transaction
+          bookingForActivity = {
+            shipyardUserId: booking.shipyardUserId,
+            vesselId: booking.vesselId,
+            vesselName: booking.vesselName,
+            shipyardName: booking.shipyardName,
+          }
           
           // Create notification message for shipowner
           const shipownerMessage = `Dear **${booking.companyName || 'Valued Customer'}**,
@@ -241,27 +265,31 @@ Best regards,
 
           console.log('Shipowner notification created successfully:', notificationId)
         }
-
-        // Log activity for shipyard user
-        if (bookingDetails && bookingDetails.length > 0) {
-          const booking = bookingDetails[0]
-          await logUserActivity(
-            booking.shipyardUserId,
-            ActivityType.BOOKING_CONFIRMED,
-            `Booking confirmed for ${booking.vesselName}`,
-            'CheckCircle',
-            {
-              bookingId: bookingId,
-              vesselId: booking.vesselId,
-              vesselName: booking.vesselName,
-              shipyardName: booking.shipyardName
-            }
-          )
-        }
       }
 
       return updatedBooking
     })
+
+    if (bookingForActivity) {
+      const activity = bookingForActivity as {
+        shipyardUserId: string
+        vesselId: string
+        vesselName: string
+        shipyardName: string
+      }
+      await logUserActivity(
+        activity.shipyardUserId,
+        ActivityType.BOOKING_CONFIRMED,
+        `Booking confirmed for ${activity.vesselName}`,
+        'CheckCircle',
+        {
+          bookingId,
+          vesselId: activity.vesselId,
+          vesselName: activity.vesselName,
+          shipyardName: activity.shipyardName,
+        }
+      )
+    }
 
     return NextResponse.json({
       success: true,

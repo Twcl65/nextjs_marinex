@@ -23,6 +23,10 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     
     const serviceId = formData.get('serviceId') as string
+    const bookingId = formData.get('bookingId') as string | null
+    const serviceName = formData.get('serviceName') as string | null
+    const originalStartDateRaw = formData.get('originalStartDate') as string | null
+    const originalEndDateRaw = formData.get('originalEndDate') as string | null
     const progress = parseInt(formData.get('progress') as string)
     const comment = (formData.get('comment') as string) || ''
     const image = formData.get('image') as File | null
@@ -108,12 +112,67 @@ export async function POST(request: NextRequest) {
     else if (progress <= 75) progressLevel = 'Level 4'
     else progressLevel = 'Level 5'
 
+    // Resolve service ID (create service if this is still using a placeholder like "offered-extra-0")
+    let resolvedServiceId = serviceId
+
+    if (!serviceId || serviceId.startsWith('offered-')) {
+      if (!bookingId || !serviceName) {
+        return NextResponse.json(
+          { error: 'Service not found and booking/serviceName not provided' },
+          { status: 400 }
+        )
+      }
+
+      let service = await prisma.drydockService.findFirst({
+        where: {
+          drydockBookingId: bookingId,
+          serviceName,
+        },
+      })
+
+      if (!service) {
+        const booking = await prisma.drydockBooking.findUnique({
+          where: { id: bookingId },
+        })
+
+        if (!booking) {
+          return NextResponse.json(
+            { error: 'Related booking not found' },
+            { status: 404 }
+          )
+        }
+
+        const prevStart =
+          originalStartDateRaw && !isNaN(new Date(originalStartDateRaw).getTime())
+            ? new Date(originalStartDateRaw)
+            : booking.bookingDate
+
+        const prevEnd =
+          originalEndDateRaw && !isNaN(new Date(originalEndDateRaw).getTime())
+            ? new Date(originalEndDateRaw)
+            : prevStart
+
+        service = await prisma.drydockService.create({
+          data: {
+            drydockBidId: booking.drydockBidId,
+            drydockBookingId: bookingId,
+            serviceName,
+            startDate: prevStart,
+            endDate: prevEnd,
+            progress: 0,
+          },
+        })
+      }
+
+      resolvedServiceId = service.id
+    }
+
     // Use a transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
       // Create progress record
       const progressRecord = await tx.drydockProgress.create({
         data: {
-          drydockServiceId: serviceId,
+          drydockServiceId: resolvedServiceId,
           progressLevel,
           progressPercent: progress,
           comment: comment || null,
@@ -124,7 +183,7 @@ export async function POST(request: NextRequest) {
 
       // Update the service progress
       await tx.drydockService.update({
-        where: { id: serviceId },
+        where: { id: resolvedServiceId },
         data: { progress }
       })
       
@@ -241,16 +300,47 @@ export async function GET(request: NextRequest) {
 
     const progressRecords = await prisma.drydockProgress.findMany({
       where: {
-        drydockServiceId: serviceId
+        drydockServiceId: serviceId,
       },
       orderBy: {
-        updatedAt: 'desc'
-      }
+        updatedAt: 'desc',
+      },
     })
+
+    // Also fetch any schedule-change records for this service (natural disaster reschedules)
+    const rescheduleRecords = await (prisma as any).drydockServiceReschedule.findMany({
+      where: {
+        drydockServiceId: serviceId,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    })
+
+    // Map reschedules into the same basic shape as DrydockProgress,
+    // with extra metadata so the UI can render them distinctly.
+    const mappedReschedules = rescheduleRecords.map((r: any) => ({
+      id: r.id,
+      drydockServiceId: r.drydockServiceId,
+      progressLevel: 'Schedule Change (Natural Disaster)',
+      progressPercent: 0,
+      comment: r.description || null,
+      imageUrl: r.imageUrl || null,
+      updatedBy: 'shipyard-user',
+      updatedAt: r.createdAt,
+      eventType: 'RESCHEDULE',
+      previousStartDate: r.previousStartDate,
+      newStartDate: r.newStartDate,
+      disasterType: r.reason,
+    }))
+
+    const combined = [...progressRecords, ...mappedReschedules].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    )
 
     return NextResponse.json({
       success: true,
-      data: progressRecords
+      data: combined,
     })
 
   } catch (error) {

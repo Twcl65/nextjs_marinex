@@ -727,53 +727,51 @@ Thank you for choosing our services.
 Best regards,
 **Marinex Platform**`
     const notificationId = crypto.randomUUID()
-
-    // Perform all database writes in a single transaction
-    const issuedCertificates = await prisma.$transaction(async (tx) => {
-      const certificateCreationPromises = processedCertificates.map(cert =>
-        tx.$executeRaw`
-          INSERT INTO drydock_issued_certificates (
-            id, drydockBookingId, vesselId, userId, certificateName, 
-            certificateType, certificateUrl, issuedDate, createdAt, updatedAt
-          ) VALUES (
-            ${cert.id}, ${bookingId}, ${booking.vesselId}, ${booking.userId},
-            ${cert.name}, ${cert.type}, ${cert.url}, ${cert.issuedDate}, ${cert.issuedDate}, ${cert.issuedDate}
-          )
-        `
-      )
-      await Promise.all(certificateCreationPromises)
-      
-      // Create notification
-      await tx.$executeRaw`
-        INSERT INTO drydock_mc_notifications (
-          id, userId, vesselId, drydockReport, drydockCertificate, 
-          safetyCertificate, vesselPlans, title, type, message, 
-          isRead, createdAt, updatedAt
+    
+    // 1) Insert issued certificates
+    const certificateCreationPromises = processedCertificates.map(cert =>
+      prisma.$executeRaw`
+        INSERT INTO drydock_issued_certificates (
+          id, drydockBookingId, vesselId, userId, certificateName, 
+          certificateType, certificateUrl, issuedDate, createdAt, updatedAt
         ) VALUES (
-          ${notificationId}, ${booking.userId}, ${booking.vesselId}, 
-          ${drydockReport ? 1 : 0}, ${drydockCertificate ? 1 : 0}, 
-          0, ${vesselPlans ? 1 : 0},
-          'Drydock Completion - Certificates Issued', 'Drydock Completion',
-          ${notificationMessage}, 0, NOW(), NOW()
+          ${cert.id}, ${bookingId}, ${booking.vesselId}, ${booking.userId},
+          ${cert.name}, ${cert.type}, ${cert.url}, ${cert.issuedDate}, ${cert.issuedDate}, ${cert.issuedDate}
         )
       `
+    )
+    await Promise.all(certificateCreationPromises)
 
-      // Update drydock_booking status to COMPLETED
-      await tx.$executeRaw`
-        UPDATE drydock_bookings
-        SET status = 'COMPLETED', updatedAt = NOW()
-        WHERE id = ${bookingId}
-      `
+    // 2) Create notification for shipowner
+    await prisma.$executeRaw`
+      INSERT INTO drydock_mc_notifications (
+        id, userId, vesselId, drydockReport, drydockCertificate, 
+        safetyCertificate, vesselPlans, title, type, message, 
+        isRead, createdAt, updatedAt
+      ) VALUES (
+        ${notificationId}, ${booking.userId}, ${booking.vesselId}, 
+        ${drydockReport ? 1 : 0}, ${drydockCertificate ? 1 : 0}, 
+        0, ${vesselPlans ? 1 : 0},
+        'Drydock Completion - Certificates Issued', 'Drydock Completion',
+        ${notificationMessage}, 0, NOW(), NOW()
+      )
+    `
 
-      // Update drydock_request status to COMPLETED
-      await tx.$executeRaw`
-        UPDATE drydock_requests
-        SET status = 'COMPLETED', updatedAt = NOW()
-        WHERE id = ${booking.drydockRequestId}
-      `
-      
-      return processedCertificates
-    })
+    // 3) Update booking status to COMPLETED
+    await prisma.$executeRaw`
+      UPDATE drydock_bookings
+      SET status = 'COMPLETED', updatedAt = NOW()
+      WHERE id = ${bookingId}
+    `
+
+    // 4) Update request status to COMPLETED
+    await prisma.$executeRaw`
+      UPDATE drydock_requests
+      SET status = 'COMPLETED', updatedAt = NOW()
+      WHERE id = ${booking.drydockRequestId}
+    `
+
+    const issuedCertificates = processedCertificates
 
     console.log(`Updated drydock_booking ${bookingId} and drydock_request ${booking.drydockRequestId} status to COMPLETED`)
 

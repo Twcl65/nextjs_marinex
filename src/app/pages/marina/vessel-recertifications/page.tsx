@@ -72,6 +72,7 @@ interface VesselRecertification {
   companyName: string
   vesselName: string
   vesselImoNumber: string
+  certificateId?: string | null
   vesselPlansUrl?: string
   drydockReportUrl?: string
   drydockCertificateUrl?: string
@@ -302,14 +303,15 @@ export default function VesselRecertifications() {
                         <div className="border border-gray-200 rounded-sm overflow-hidden">
                         <Table>
                             <TableHeader className="bg-gray-50">
-                                <TableRow className="border-b border-border">
-                                    <TableHead>Company</TableHead>
-                                    <TableHead>IMO Number</TableHead>
-                                    <TableHead>Vessel Name</TableHead>
-                                    <TableHead>Files</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead>Actions</TableHead>
-                                </TableRow>
+                              <TableRow className="border-b border-border">
+                                <TableHead>Company</TableHead>
+                                <TableHead>IMO Number</TableHead>
+                                <TableHead>Vessel Name</TableHead>
+                                <TableHead>Certificate ID</TableHead>
+                                <TableHead>Files</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Actions</TableHead>
+                              </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {loading ? (
@@ -340,6 +342,9 @@ export default function VesselRecertifications() {
                                                 </TableCell>
                                                 <TableCell>{req.vesselImoNumber}</TableCell>
                                                 <TableCell>{req.vesselName}</TableCell>
+                                                <TableCell className="font-mono text-xs text-gray-700">
+                                                  {req.certificateId ?? '—'}
+                                                </TableCell>
                                                 <TableCell>
                                                     {completedFiles === 4 ? (
                                                         <Badge className="bg-green-100 text-green-700 font-semibold" variant="secondary">Completed 4/4</Badge>

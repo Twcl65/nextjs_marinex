@@ -30,6 +30,8 @@ interface DrydockBooking {
   totalDays: number
   startDate: string
   endDate: string
+  arrivalDate?: string | null
+  departureDate?: string | null
   progress: number
   shipyardName: string
   totalBid: number
@@ -111,6 +113,12 @@ export default function DrydockOperationsPage() {
   const [loadingServices, setLoadingServices] = useState(false)
   const [isProgressDialogOpen, setIsProgressDialogOpen] = useState(false)
   const [selectedService, setSelectedService] = useState<Service | null>(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleReason, setRescheduleReason] = useState('')
+  const [rescheduleDescription, setRescheduleDescription] = useState('')
+  const [rescheduleImage, setRescheduleImage] = useState<File | null>(null)
+  const [rescheduling, setRescheduling] = useState(false)
+  const [showRescheduleForm, setShowRescheduleForm] = useState(false)
   const [progressLevel, setProgressLevel] = useState<string>('')
   const [progressComment, setProgressComment] = useState('')
   const [progressImage, setProgressImage] = useState<File | null>(null)
@@ -146,6 +154,10 @@ export default function DrydockOperationsPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [selectedBookingDetails, setSelectedBookingDetails] = useState<DrydockBooking | null>(null);
+  const [arrivalEdit, setArrivalEdit] = useState('')
+  const [departureEdit, setDepartureEdit] = useState('')
+  const [savingDates, setSavingDates] = useState(false)
+  const [showDateEditor, setShowDateEditor] = useState(false)
 
   interface IssuedCertificate {
     id: string;
@@ -198,24 +210,163 @@ export default function DrydockOperationsPage() {
         const earliestStart = new Date(Math.min(...startTimestamps))
         const latestEnd = new Date(Math.max(...endTimestamps))
         
+        const startFormatted = earliestStart.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+        })
+        const endFormatted = latestEnd.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+        })
+
         return {
-          startDate: earliestStart.toLocaleDateString('en-GB'),
-          endDate: latestEnd.toLocaleDateString('en-GB')
+          startDate: startFormatted,
+          endDate: endFormatted,
         }
       }
       
       // Fallback to booking date calculation if no services found
+      const start = new Date(bookingDate)
+      const end = new Date(start.getTime() + totalDays * 24 * 60 * 60 * 1000)
       return {
-        startDate: new Date(bookingDate).toLocaleDateString('en-GB'),
-        endDate: new Date(new Date(bookingDate).getTime() + totalDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+        startDate: start.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+        }),
+        endDate: end.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+        }),
       }
     } catch (error) {
       console.error('Error fetching service dates:', error)
       // Fallback to booking date calculation on error
+      const start = new Date(bookingDate)
+      const end = new Date(start.getTime() + totalDays * 24 * 60 * 60 * 1000)
       return {
-        startDate: new Date(bookingDate).toLocaleDateString('en-GB'),
-        endDate: new Date(new Date(bookingDate).getTime() + totalDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+        startDate: start.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+        }),
+        endDate: end.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+        }),
       }
+    }
+  }
+
+  const formatLongDate = (date: Date) =>
+    date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: '2-digit',
+    })
+
+  const getArrivalAndDeparture = (booking: DrydockBooking | null) => {
+    if (!booking || !booking.startDate || !booking.endDate) {
+      return { arrival: '', departure: '' }
+    }
+
+    const start = new Date(booking.startDate)
+    const end = new Date(booking.endDate)
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return { arrival: '', departure: '' }
+    }
+
+    const arrivalDate = booking.arrivalDate
+      ? new Date(booking.arrivalDate)
+      : new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const now = new Date()
+
+    let departure: string
+    if (now >= end) {
+      const depDate = booking.departureDate
+        ? new Date(booking.departureDate)
+        : new Date(end.getTime() + 7 * 24 * 60 * 60 * 1000)
+      departure = formatLongDate(depDate)
+    } else {
+      departure = 'Ongoing Drydock'
+    }
+
+    return {
+      arrival: formatLongDate(arrivalDate),
+      departure,
+    }
+  }
+
+  const handleSaveArrivalDeparture = async (): Promise<boolean> => {
+    if (!selectedBooking) return false
+    if (!arrivalEdit && !departureEdit) {
+      toast({
+        title: 'Nothing to update',
+        description: 'Please adjust at least the arrival or the departure date before saving.',
+      })
+      return false
+    }
+
+    try {
+      setSavingDates(true)
+      const res = await fetch('/api/shipyard/update-booking-dates', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: selectedBooking.id,
+          arrivalDate: arrivalEdit,
+          departureDate: departureEdit,
+        }),
+      })
+
+      if (!res.ok) {
+        throw new Error('Failed to update arrival/departure dates')
+      }
+
+      const data = await res.json()
+      const updated = data.booking as { id: string; arrivalDate: string | null; departureDate: string | null }
+
+      setBookings(prev =>
+        prev.map(b =>
+          b.id === updated.id
+            ? { ...b, arrivalDate: updated.arrivalDate, departureDate: updated.departureDate }
+            : b
+        )
+      )
+      setFilteredBookings(prev =>
+        prev.map(b =>
+          b.id === updated.id
+            ? { ...b, arrivalDate: updated.arrivalDate, departureDate: updated.departureDate }
+            : b
+        )
+      )
+      setSelectedBooking(prev =>
+        prev && prev.id === updated.id
+          ? { ...prev, arrivalDate: updated.arrivalDate, departureDate: updated.departureDate }
+          : prev
+      )
+
+      toast({
+        title: 'Arrival / Departure updated',
+        description: 'The vessel arrival and departure dates have been updated.',
+      })
+      return true
+    } catch (error) {
+      console.error('Error updating arrival/departure dates:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to update arrival/departure dates. Please try again.',
+        variant: 'destructive',
+      })
+      return false
+    } finally {
+      setSavingDates(false)
     }
   }
 
@@ -244,6 +395,8 @@ export default function DrydockOperationsPage() {
             totalBid: number;
             servicesOffered: Record<string, unknown>;
             requestStatus?: string;
+            arrivalDate?: string | null;
+            departureDate?: string | null;
           }) => {
             // Calculate actual progress from services
             const progress = await calculateBookingProgress(booking.id)
@@ -262,6 +415,8 @@ export default function DrydockOperationsPage() {
               totalDays: booking.totalDays,
               startDate: dates.startDate,
               endDate: dates.endDate,
+              arrivalDate: booking.arrivalDate ?? null,
+              departureDate: booking.departureDate ?? null,
               progress: progress, // Calculate from actual services
               shipyardName: booking.shipyardName,
               totalBid: booking.totalBid,
@@ -287,6 +442,20 @@ export default function DrydockOperationsPage() {
       fetchBookings()
     }
   }, [user?.id, fetchBookings])
+
+  useEffect(() => {
+    if (selectedBooking) {
+      const arrivalIso = selectedBooking.arrivalDate ?? ''
+      const departureIso = selectedBooking.departureDate ?? ''
+      setArrivalEdit(arrivalIso ? arrivalIso.substring(0, 10) : '')
+      setDepartureEdit(departureIso ? departureIso.substring(0, 10) : '')
+      setShowDateEditor(false)
+    } else {
+      setArrivalEdit('')
+      setDepartureEdit('')
+      setShowDateEditor(false)
+    }
+  }, [selectedBooking, isDialogOpen])
 
   useEffect(() => {
     let filtered = bookings
@@ -332,7 +501,7 @@ export default function DrydockOperationsPage() {
       
       if (data.success && data.data && data.data.length > 0) {
         // Transform the database services to our Service interface
-        const transformedServices: Service[] = data.data.map((service: {
+        let transformedServices: Service[] = data.data.map((service: {
           id: string;
           serviceName: string;
           startDate: string;
@@ -355,6 +524,47 @@ export default function DrydockOperationsPage() {
             progress: service.progress || 0
           }
         })
+
+        // Ensure we still display any additional services that only exist
+        // in servicesOffered (not yet persisted in drydock_services).
+        if (booking.servicesOffered && Object.keys(booking.servicesOffered).length > 0) {
+          const existingNames = new Set(
+            transformedServices.map(s => s.name.toLowerCase())
+          )
+
+          let offeredNames: string[] = []
+
+          if (Array.isArray(booking.servicesOffered)) {
+            offeredNames = (booking.servicesOffered as unknown as string[]).filter(
+              n => typeof n === 'string'
+            )
+          } else {
+            offeredNames = Object.values(booking.servicesOffered)
+              .map(value => {
+                if (typeof value === 'string') return value
+                if (value && typeof value === 'object' && 'name' in (value as any)) {
+                  const v = value as { name?: string }
+                  return v.name || ''
+                }
+                return ''
+              })
+              .filter(Boolean)
+          }
+
+          const extraServices: Service[] = offeredNames
+            .filter(name => !existingNames.has(name.toLowerCase()))
+            .map((name, index) => ({
+              id: `offered-extra-${index}`,
+              name,
+              startDate: booking.startDate,
+              endDate: booking.endDate,
+              progress: 0,
+            }))
+
+          if (extraServices.length > 0) {
+            transformedServices = [...transformedServices, ...extraServices]
+          }
+        }
         
         // Calculate actual progress from services
         const totalProgress = transformedServices.reduce((sum, service) => sum + service.progress, 0)
@@ -372,14 +582,36 @@ export default function DrydockOperationsPage() {
       } else {
         // If no services found in database, create services from servicesOffered
         if (booking.servicesOffered && Object.keys(booking.servicesOffered).length > 0) {
-          const servicesFromOffered: Service[] = Object.entries(booking.servicesOffered).map(([name, _details]: [string, unknown], index) => ({
-            id: `offered-${index}`,
-            name: name,
-            startDate: booking.startDate,
-            endDate: booking.endDate,
-            progress: 0 // Default progress for offered services
-          }))
-          
+          let servicesFromOffered: Service[] = []
+
+          // servicesOffered is stored from bidForm.servicesOffered (string[])
+          // but may come back as an array or an object depending on the driver.
+          if (Array.isArray(booking.servicesOffered)) {
+            servicesFromOffered = (booking.servicesOffered as unknown as string[]).map((serviceName, index) => ({
+              id: `offered-${index}`,
+              name: serviceName,
+              startDate: booking.startDate,
+              endDate: booking.endDate,
+              progress: 0,
+            }))
+          } else {
+            servicesFromOffered = Object.entries(booking.servicesOffered).map(
+              ([, value]: [string, unknown], index) => {
+                const serviceName =
+                  typeof value === 'string'
+                    ? value
+                    : (value as { name?: string })?.name || `Service ${index + 1}`
+                return {
+                  id: `offered-${index}`,
+                  name: serviceName,
+                  startDate: booking.startDate,
+                  endDate: booking.endDate,
+                  progress: 0,
+                }
+              }
+            )
+          }
+
           // Since all services have 0 progress, set booking progress to 0
           setSelectedBooking({
             ...booking,
@@ -421,6 +653,11 @@ export default function DrydockOperationsPage() {
     setProgressComment('')
     setProgressImage(null)
     setShowNewUpdateForm(false)
+    setRescheduleDate('')
+    setRescheduleReason('')
+    setRescheduleDescription('')
+    setRescheduleImage(null)
+    setShowRescheduleForm(false)
     setIsProgressDialogOpen(true)
     
     // Fetch all progress data
@@ -470,6 +707,10 @@ export default function DrydockOperationsPage() {
     setProgressLevel('')
     setProgressComment('')
     setProgressImage(null)
+    setRescheduleDate('')
+    setRescheduleReason('')
+    setRescheduleDescription('')
+    setRescheduleImage(null)
     setExistingProgress([])
     setAllProgress([])
     setShowNewUpdateForm(false)
@@ -482,6 +723,85 @@ export default function DrydockOperationsPage() {
     }
   }
 
+  const handleRescheduleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setRescheduleImage(file)
+    }
+  }
+
+  const handleRescheduleService = async () => {
+    if (!selectedService || !selectedBooking) {
+      return
+    }
+    if (!rescheduleDate.trim() || !rescheduleReason.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please provide a new start date and a reason for rescheduling.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      setRescheduling(true)
+      const formData = new FormData()
+      formData.append('serviceId', selectedService.id)
+      formData.append('bookingId', selectedBooking.id)
+      formData.append('serviceName', selectedService.name)
+      formData.append('originalStartDate', selectedService.startDate)
+      formData.append('originalEndDate', selectedService.endDate)
+      formData.append('newStartDate', rescheduleDate)
+      formData.append('reason', rescheduleReason)
+      formData.append('description', rescheduleDescription)
+      if (rescheduleImage) {
+        formData.append('image', rescheduleImage)
+      }
+
+      const response = await fetch('/api/shipyard/drydock-service-reschedule', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to reschedule service')
+      }
+
+      const updated = result.service as { id: string; startDate: string; endDate: string | null }
+      const formattedStart = new Date(updated.startDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: '2-digit',
+      })
+
+      setSelectedService(prev =>
+        prev ? { ...prev, startDate: formattedStart } : prev
+      )
+      setServices(prev =>
+        prev.map(s =>
+          s.id === updated.id ? { ...s, startDate: formattedStart } : s
+        )
+      )
+
+      toast({
+        title: 'Service start date updated',
+        description:
+          'The service start date has been rescheduled. This change is recorded with your reason and supporting details.',
+      })
+    } catch (error) {
+      console.error('Error rescheduling service:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to reschedule the service. Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setRescheduling(false)
+    }
+  }
+
   const getProgressPercentage = (level: string) => {
     switch (level) {
       case 'Level 1': return 15
@@ -490,6 +810,17 @@ export default function DrydockOperationsPage() {
       case 'Level 4': return 75
       case 'Level 5': return 100
       default: return 0
+    }
+  }
+
+  const getProgressDescription = (level: string) => {
+    switch (level) {
+      case 'Level 1': return 'Initial inspection and first coating preparation. The ship\'s work progress is on the first coating or initial inspection phase.'
+      case 'Level 2': return 'Surface preparation and cleaning. Hull cleaning, sandblasting, and preparation for coating application.'
+      case 'Level 3': return 'Mid-stage work progress. Coating application, structural repairs, and system maintenance are in progress.'
+      case 'Level 4': return 'Final stages of work. Final coating layers, system testing, and quality checks are being completed.'
+      case 'Level 5': return 'Work completed. All inspections passed, final documentation ready, and vessel ready for undocking.'
+      default: return ''
     }
   }
 
@@ -508,6 +839,12 @@ export default function DrydockOperationsPage() {
       
       const formData = new FormData()
       formData.append('serviceId', selectedService.id)
+      if (selectedBooking) {
+        formData.append('bookingId', (selectedBooking as any).drydockBidId ? selectedBooking.id : selectedBooking.id)
+        formData.append('serviceName', selectedService.name)
+        formData.append('originalStartDate', selectedService.startDate)
+        formData.append('originalEndDate', selectedService.endDate)
+      }
       formData.append('progress', getProgressPercentage(progressLevel).toString())
       formData.append('comment', progressComment)
       formData.append('date', new Date().toISOString())
@@ -636,7 +973,33 @@ export default function DrydockOperationsPage() {
     return servicesList.every(service => service.progress >= 100)
   }
 
-  const handleIssueCertificates = () => {
+  const handleIssueCertificates = async () => {
+    if (!selectedBooking) {
+      toast({
+        title: 'Error',
+        description: 'No booking selected for issuing certificates.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Before issuing certificates, ensure arrival/departure edits are saved
+    const arrivalIso = selectedBooking.arrivalDate ?? ''
+    const departureIso = selectedBooking.departureDate ?? ''
+    const currentArrival = arrivalIso ? arrivalIso.substring(0, 10) : ''
+    const currentDeparture = departureIso ? departureIso.substring(0, 10) : ''
+
+    const hasArrivalChange = arrivalEdit !== currentArrival
+    const hasDepartureChange = departureEdit !== currentDeparture
+
+    if ((hasArrivalChange || hasDepartureChange) && (arrivalEdit || departureEdit)) {
+      const ok = await handleSaveArrivalDeparture()
+      if (!ok) {
+        // If saving failed, do not proceed to issuing certificates
+        return
+      }
+    }
+
     // Close the services dialog first
     setIsDialogOpen(false)
     // Then open the certificate dialog
@@ -1039,7 +1402,89 @@ export default function DrydockOperationsPage() {
 
               {selectedBooking && (
                 <div className="space-y-6">
-                  
+                  {/* Arrival / Departure summary */}
+                  {(() => {
+                    const { arrival, departure } = getArrivalAndDeparture(selectedBooking)
+                    return (
+                      <>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-gray-500">Arrival Date</p>
+                              <p className="font-medium text-gray-900">{arrival || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500">Departure Date</p>
+                              <p className="font-medium text-gray-900">{departure || '—'}</p>
+                            </div>
+                          </div>
+                          {!showDateEditor && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setShowDateEditor(true)}
+                              className="self-start sm:self-auto text-xs border-[#134686] text-[#134686]"
+                            >
+                              Edit Arrival or Departure Date
+                            </Button>
+                          )}
+                        </div>
+                        {showDateEditor && (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs mt-3">
+                            <div>
+                              <p className="text-gray-500 mb-1">Adjust Arrival Date</p>
+                              <Input
+                                type="date"
+                                value={arrivalEdit}
+                                onChange={e => setArrivalEdit(e.target.value)}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <p className="text-gray-500 mb-1">Adjust Departure Date</p>
+                              <Input
+                                type="date"
+                                value={departureEdit}
+                                onChange={e => setDepartureEdit(e.target.value)}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-end justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setShowDateEditor(false)
+                                  // reset edits back to current booking values
+                                  const arrivalIso = selectedBooking.arrivalDate ?? ''
+                                  const departureIso = selectedBooking.departureDate ?? ''
+                                  setArrivalEdit(arrivalIso ? arrivalIso.substring(0, 10) : '')
+                                  setDepartureEdit(departureIso ? departureIso.substring(0, 10) : '')
+                                }}
+                                className="h-8 px-3 text-xs"
+                                disabled={savingDates}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={async () => {
+                                  const ok = await handleSaveArrivalDeparture()
+                                  if (ok) {
+                                    setShowDateEditor(false)
+                                  }
+                                }}
+                                disabled={savingDates || (!arrivalEdit && !departureEdit)}
+                                className="h-8 px-3 text-xs bg-[#134686] text-white hover:bg-[#0f3a6e]"
+                              >
+                                {savingDates ? 'Saving...' : 'Save'}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
 
                   {/* Services Table */}
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -1140,16 +1585,125 @@ export default function DrydockOperationsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Service</p>
-                      <p className="text-base font-semibold text-gray-900 mt-1">{selectedService.name}</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">
+                        {selectedService?.name ?? ''}
+                      </p>
                     </div>
                     <div className="border border-gray-200 rounded-lg p-4">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Start Date</p>
-                      <p className="text-base font-semibold text-gray-900 mt-1">{selectedService.startDate}</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">
+                        {selectedService?.startDate ?? ''}
+                      </p>
                     </div>
                     <div className="border border-gray-200 rounded-lg p-4">
                       <p className="text-xs uppercase tracking-wide text-gray-500">End Date</p>
-                      <p className="text-base font-semibold text-gray-900 mt-1">{selectedService.endDate}</p>
+                      <p className="text-base font-semibold text-gray-900 mt-1">
+                        {selectedService?.endDate ?? ''}
+                      </p>
                     </div>
+                  </div>
+
+                  <div className="border border-gray-200 rounded-lg p-4 bg-blue-50/60 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          Reschedule service (natural disasters)
+                        </h3>
+                        <p className="text-xs text-gray-600">
+                          Use this when natural events (earthquakes, typhoons, etc.) delay this service.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={showRescheduleForm ? 'outline' : 'default'}
+                        className={`text-xs ${showRescheduleForm ? 'border-[#134686] text-[#134686]' : 'bg-[#134686] text-white hover:bg-[#0f3a6e]'}`}
+                        onClick={() => setShowRescheduleForm(prev => !prev)}
+                      >
+                        {showRescheduleForm ? 'Close Reschedule Form' : 'Reschedule Service (Natural Disasters)'}
+                      </Button>
+                    </div>
+
+                    {showRescheduleForm && (
+                      <div className="space-y-4 mt-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              New Start Date
+                            </label>
+                            <Input
+                              type="date"
+                              value={rescheduleDate}
+                              onChange={e => setRescheduleDate(e.target.value)}
+                              className="h-9 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Type of Disaster
+                            </label>
+                            <select
+                              value={rescheduleReason}
+                              onChange={e => setRescheduleReason(e.target.value)}
+                              className="h-9 w-full text-sm border border-gray-300 rounded-md px-2 focus:outline-none focus:ring-1 focus:ring-[#134686] focus:border-[#134686] bg-white"
+                            >
+                              <option value="">Select type of disaster</option>
+                              <option value="Typhoon">Typhoon</option>
+                              <option value="Earthquake">Earthquake</option>
+                              <option value="Flooding">Flooding</option>
+                              <option value="Storm Surge">Storm Surge</option>
+                              <option value="Tsunami">Tsunami</option>
+                              <option value="Volcanic Eruption">Volcanic Eruption</option>
+                              <option value="Landslide">Landslide</option>
+                              <option value="Extreme Weather">Extreme Weather</option>
+                              <option value="Port Closure / Government Advisory">Port Closure / Government Advisory</option>
+                              <option value="Other">Other</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Detailed Description (optional)
+                            </label>
+                            <textarea
+                              value={rescheduleDescription}
+                              onChange={e => setRescheduleDescription(e.target.value)}
+                              placeholder="Explain how the natural event affected the schedule..."
+                              className="w-full p-2 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686] text-sm resize-none"
+                              rows={3}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              Supporting Picture (optional)
+                            </label>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleRescheduleImageChange}
+                              className="w-full text-xs"
+                            />
+                            {rescheduleImage && (
+                              <p className="text-xs text-gray-600 mt-1">
+                                Selected: {rescheduleImage.name}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            className="px-4 py-1 text-xs bg-[#134686] text-white hover:bg-[#0f3a6e]"
+                            onClick={handleRescheduleService}
+                            disabled={rescheduling || !rescheduleDate || !rescheduleReason}
+                          >
+                            {rescheduling ? 'Saving change...' : 'Save New Start Date'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1168,7 +1722,7 @@ export default function DrydockOperationsPage() {
                             <label
                               key={level}
                               htmlFor={level}
-                              className="flex items-center gap-3 p-2 rounded-lg border border-gray-200 hover:border-[#134686] cursor-pointer transition-colors"
+                              className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:border-[#134686] cursor-pointer transition-colors"
                             >
                               <input
                                 type="radio"
@@ -1177,11 +1731,16 @@ export default function DrydockOperationsPage() {
                                 value={level}
                                 checked={progressLevel === level}
                                 onChange={(e) => handleLevelChange(e.target.value)}
-                                className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300"
+                                className="h-4 w-4 text-[#134686] focus:ring-[#134686] border-gray-300 mt-0.5"
                               />
-                              <span className="text-sm font-medium text-gray-700">
-                                {level} ({getProgressPercentage(level)}%)
-                              </span>
+                              <div className="flex-1">
+                                <span className="text-sm font-medium text-gray-700 block">
+                                  {level} ({getProgressPercentage(level)}%)
+                                </span>
+                                <span className="text-xs text-gray-500 mt-1 block">
+                                  {getProgressDescription(level)}
+                                </span>
+                              </div>
                             </label>
                           ))}
                         </div>
@@ -1279,11 +1838,13 @@ export default function DrydockOperationsPage() {
                                 onChange={handleImageChange}
                                 className="w-full p-2 border border-gray-300 rounded-md focus:ring-[#134686] focus:border-[#134686]"
                               />
-                              {progressImage && (
-                                <p className="text-sm text-gray-600 mt-1">
-                                  Selected: {progressImage.name}
-                                </p>
-                              )}
+                              {progressImage
+                                ? (
+                                  <p className="text-sm text-gray-600 mt-1">
+                                    Selected: {progressImage.name}
+                                  </p>
+                                )
+                                : null}
                             </div>
 
                             <div className="pt-2">
@@ -1366,11 +1927,13 @@ export default function DrydockOperationsPage() {
                               }}
                               className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#134686] file:text-white hover:file:bg-[#0f3a6d] cursor-pointer"
                             />
-                            {vesselPlansFile && (
-                              <p className="text-xs text-gray-600 mt-1">
-                                Selected: <span className="font-medium">{vesselPlansFile.name}</span>
-                              </p>
-                            )}
+                            {vesselPlansFile
+                              ? (
+                                <p className="text-xs text-gray-600 mt-1">
+                                  Selected: <span className="font-medium">{vesselPlansFile.name}</span>
+                                </p>
+                              )
+                              : null}
                           </div>
                         )}
                       </div>
@@ -1495,25 +2058,62 @@ export default function DrydockOperationsPage() {
                   </DialogHeader>
                   {selectedBookingDetails && (
                     <div className="mb-6 border-b pb-4">
-                        <h3 className="text-lg font-semibold mb-3 text-gray-800">Booking Summary</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      {(() => {
+                        const details = selectedBookingDetails!
+                        return (
+                          <>
+                            <h3 className="text-lg font-semibold mb-3 text-gray-800">Booking Summary</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                             <div>
                                 <p className="text-gray-500">Company</p>
-                                <p className="font-medium text-gray-900">{selectedBookingDetails.companyName}</p>
+                                <p className="font-medium text-gray-900">{details.companyName}</p>
                             </div>
                             <div>
                                 <p className="text-gray-500">Vessel</p>
-                                <p className="font-medium text-gray-900">{selectedBookingDetails.vesselName} (IMO: {selectedBookingDetails.imoNumber})</p>
+                                <p className="font-medium text-gray-900">
+                                  {details.vesselName} (IMO: {details.imoNumber})
+                                </p>
                             </div>
                             <div>
+                                <p className="text-gray-500">Arrival Date</p>
+                                <p className="font-medium text-gray-900">
+                                  {details.arrivalDate
+                                    ? new Date(details.arrivalDate).toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: '2-digit',
+                                      })
+                                    : '—'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-gray-500">Departure Date</p>
+                                <p className="font-medium text-gray-900">
+                                  {details.departureDate
+                                    ? new Date(details.departureDate).toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: '2-digit',
+                                      })
+                                    : '—'}
+                                </p>
+                            </div>
+                            <div className="md:col-span-2">
                                 <p className="text-gray-500">Drydock Period</p>
-                                <p className="font-medium text-gray-900">{selectedBookingDetails.startDate} to {selectedBookingDetails.endDate}</p>
+                                <p className="font-medium text-gray-900">
+                                  {details.startDate} to {details.endDate}
+                                </p>
                             </div>
                             <div>
                                 <p className="text-gray-500">Final Bid</p>
-                                <p className="font-medium text-gray-900">₱{selectedBookingDetails.totalBid.toLocaleString()}</p>
+                                <p className="font-medium text-gray-900">
+                                  ₱{details.totalBid.toLocaleString()}
+                                </p>
                             </div>
                         </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   )}
                   {loadingCertificates ? (
@@ -1545,7 +2145,15 @@ export default function DrydockOperationsPage() {
                                       {filteredCertificates.map(cert => (
                                           <TableRow key={cert.id}>
                                               <TableCell>{cert.certificateName}</TableCell>
-                                              <TableCell>{new Date(cert.issuedDate).toLocaleDateString()}</TableCell>
+                                              <TableCell>
+                                                {cert.issuedDate
+                                                  ? new Date(cert.issuedDate).toLocaleDateString('en-US', {
+                                                      year: 'numeric',
+                                                      month: 'long',
+                                                      day: '2-digit',
+                                                    })
+                                                  : ''}
+                                              </TableCell>
                                               <TableCell>
                                                   <Button
                                                     variant="outline"
