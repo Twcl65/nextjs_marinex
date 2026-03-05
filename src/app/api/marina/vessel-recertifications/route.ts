@@ -184,12 +184,15 @@ export async function POST(request: NextRequest) {
         const idSuffix = recertification.id.slice(-6).toUpperCase()
         const certificateId = `VR-${year}-${idSuffix}`
 
-        // Build verification URL for QR / manual entry (root verify page)
+        // Build verification URL that deep-links directly to this certificate
+        // Example: https://app-domain/verify/VR-2026-ABC123
         const appBaseUrl =
           process.env.NEXT_PUBLIC_APP_URL ||
           process.env.APP_BASE_URL ||
           'https://nextjs-marinex.vercel.app'
-        const verificationUrl = `${appBaseUrl.replace(/\/$/, '')}/verify`
+        const verificationUrl = `${appBaseUrl.replace(/\/$/, '')}/verify/${encodeURIComponent(
+          certificateId
+        )}`
 
         // Generate certificate PDF (with QR + metadata)
         const certificateBuffer = await generateVesselCertificate(
